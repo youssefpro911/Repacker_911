@@ -611,7 +611,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
         layout_controls(window);InvalidateRect(window,nullptr,TRUE);return 0;
     case WM_GETMINMAXINFO:{
         auto* info=reinterpret_cast<MINMAXINFO*>(lp);
-        info->ptMinTrackSize.x=1120;info->ptMinTrackSize.y=850;return 0;}
+        info->ptMinTrackSize.x=1120;info->ptMinTrackSize.y=940;return 0;}
     case WM_ERASEBKGND:return 1;
     case WM_PAINT:{
         PAINTSTRUCT ps{};HDC dc=BeginPaint(window,&ps);paint_workspace(window,dc);EndPaint(window,&ps);return 0;}
