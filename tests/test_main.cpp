@@ -17,10 +17,49 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
+}
+
+void set_test_read_only(const std::filesystem::path& path, bool read_only) {
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    require(attributes != INVALID_FILE_ATTRIBUTES,
+            "GetFileAttributesW failed for test file (Win32 error " + std::to_string(GetLastError()) + ")");
+    const DWORD updated = read_only ? (attributes | FILE_ATTRIBUTE_READONLY)
+                                    : (attributes & ~FILE_ATTRIBUTE_READONLY);
+    require(updated == attributes || SetFileAttributesW(path.c_str(), updated) != 0,
+            "SetFileAttributesW failed for test file (Win32 error " + std::to_string(GetLastError()) + ")");
+#else
+    std::error_code ec;
+    const auto mode = read_only ? std::filesystem::perm_options::remove
+                                : std::filesystem::perm_options::add;
+    std::filesystem::permissions(path, std::filesystem::perms::owner_write, mode, ec);
+    require(!ec, "Could not change test file write permission: " + ec.message());
+#endif
+}
+
+bool test_is_read_only(const std::filesystem::path& path) {
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    require(attributes != INVALID_FILE_ATTRIBUTES,
+            "GetFileAttributesW failed when checking restored file (Win32 error " + std::to_string(GetLastError()) + ")");
+    return (attributes & FILE_ATTRIBUTE_READONLY) != 0;
+#else
+    std::error_code ec;
+    const auto permissions = std::filesystem::status(path, ec).permissions();
+    require(!ec, "Could not inspect restored file permissions: " + ec.message());
+    return (permissions & std::filesystem::perms::owner_write) == std::filesystem::perms::none;
+#endif
 }
 
 class TestDirectory {
@@ -35,9 +74,16 @@ public:
         if (std::filesystem::exists(path_, ec)) {
             for (const auto& item : std::filesystem::recursive_directory_iterator(path_, ec)) {
                 if (item.is_regular_file(ec)) {
+#ifdef _WIN32
+                    const DWORD attributes = GetFileAttributesW(item.path().c_str());
+                    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_READONLY) != 0) {
+                        SetFileAttributesW(item.path().c_str(), attributes & ~FILE_ATTRIBUTE_READONLY);
+                    }
+#else
                     std::filesystem::permissions(item.path(), std::filesystem::perms::owner_write,
                                                  std::filesystem::perm_options::add, ec);
                     ec.clear();
+#endif
                 }
             }
         }
@@ -234,9 +280,7 @@ void test_pack_extract_and_corruption() {
     media[4] = 'f'; media[5] = 't'; media[6] = 'y'; media[7] = 'p';
     write_bytes(source / "sample.mp4", media);
 
-    std::error_code ec;
-    std::filesystem::permissions(source / "hello.txt", std::filesystem::perms::owner_write, std::filesystem::perm_options::remove, ec);
-    require(!ec, "Could not mark test file read-only");
+    set_test_read_only(source / "hello.txt", true);
 
     rpk::PackOptions options;
     options.preset = 1;
@@ -274,8 +318,7 @@ void test_pack_extract_and_corruption() {
 
     rpk::extract_archive(archive, restored, false);
     compare_trees(source, restored);
-    const auto restored_permissions = std::filesystem::status(restored / "hello.txt").permissions();
-    require((restored_permissions & std::filesystem::perms::owner_write) == std::filesystem::perms::none,
+    require(test_is_read_only(restored / "hello.txt"),
             "Read-only attribute was not restored");
 
     const auto corrupt = temporary.path() / "corrupt.rpk";
