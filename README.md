@@ -62,26 +62,11 @@ rpk_milestone4/
 - Zstandard (libzstd 1.5+ recommended)
 - Windows GUI: Windows 10/11 SDK and MSVC (the GUI is a native Win32 application and has no Qt/Tauri runtime dependency)
 
-## Easy Windows setup (no manual CMake commands)
+## Prebuilt Windows release
 
-For Windows 10/11 x64, extract this project folder and double-click `Install-RPK.cmd`.
-The setup script automatically:
+Download the latest **RPK-Windows-x64.zip** from the [GitHub Releases](https://github.com/youssefpro911/Repacker_911/releases) page. Extract it and run `rpk_gui.exe`. The portable package includes the GUI, CLI, SFX stub, Jan assistant, and setup documentation. You do not need to install a compiler or CMake to run the released application.
 
-1. Detects your installed Visual Studio C++ toolchain and CMake generator.
-2. Downloads and bootstraps vcpkg in your user profile (not `C:\vcpkg`).
-3. Installs liblzma, OpenSSL, zlib, and Zstandard for x64.
-4. Configures, compiles, and tests the project automatically.
-5. Copies the GUI, CLI, and runtime DLLs into `%LOCALAPPDATA%\Programs\RPK`.
-6. Creates a desktop shortcut and Start Menu entry, registers an Apps & Features uninstall entry, and launches the GUI.
-
-**First-run requirements:** Visual Studio 2022 or 2026 with the **Desktop development with C++** workload and a Windows 10/11 SDK, CMake, Git for Windows, and an internet connection to download dependencies. The setup script does the CMake/vcpkg work for you; you do not need to type build commands. Setup diagnostics are written to `%TEMP%\RPK-Setup.log`.
-
-If a prerequisite is missing, install it from:
-- Visual Studio: https://visualstudio.microsoft.com/vs/community/
-- CMake: https://cmake.org/download/
-- Git: https://git-scm.com/download/win
-
-After installation, use the **RPK** desktop shortcut. The command-line executable is installed beside the GUI as `rpk.exe`.
+Jan Desktop and a local model are optional and must be installed separately. See [AI-SETUP.md](AI-SETUP.md) for the Jan Local API setup.
 
 ### Manual Windows build (optional)
 
