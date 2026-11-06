@@ -3,6 +3,7 @@
 #include "scanner.hpp"
 #include "hash.hpp"
 #include "precomp.hpp"
+#include "sfx.hpp"
 
 #include <zlib.h>
 
@@ -382,6 +383,59 @@ void test_pack_extract_and_corruption() {
     rpk::verify_archive(no_dedup_archive);
 }
 
+void test_sfx_builder() {
+    TestDirectory temporary;
+    const auto source = temporary.path() / "source";
+    const auto archive = temporary.path() / "content.rpk";
+    const auto stub = temporary.path() / "rpk_setup.exe";
+    const auto output = temporary.path() / "content-setup.exe";
+
+    write_bytes(source / "data" / "hello.txt",
+                std::vector<std::uint8_t>{'R','P','K',' ','S','F','X','\n'});
+    write_bytes(stub, std::vector<std::uint8_t>{'M','Z',0x90,0x00,'R','P','K','S','T','U','B'});
+
+    rpk::PackOptions options;
+    options.preset = 1;
+    options.dictionary_mib = 4;
+    options.block_size = 1024ULL * 1024ULL;
+    options.memory_limit_mib = 512;
+    rpk::pack_directory(source, archive, options);
+
+    rpk::create_sfx_installer(archive, stub, output);
+    const auto archive_bytes = read_bytes(archive);
+    const auto stub_bytes = read_bytes(stub);
+    const auto sfx_bytes = read_bytes(output);
+    require(sfx_bytes.size() == stub_bytes.size() + archive_bytes.size() + rpk::kSfxFooterSize,
+            "SFX output size does not match stub + archive + footer");
+    require(std::equal(stub_bytes.begin(), stub_bytes.end(), sfx_bytes.begin()),
+            "SFX executable does not preserve the original setup stub prefix");
+    require(std::equal(archive_bytes.begin(), archive_bytes.end(),
+                       sfx_bytes.begin() + static_cast<std::ptrdiff_t>(stub_bytes.size())),
+            "SFX executable does not contain the original RPK archive payload");
+
+    const auto footer_offset = sfx_bytes.size() - static_cast<std::size_t>(rpk::kSfxFooterSize);
+    require(std::equal(rpk::kSfxFooterMagic.begin(), rpk::kSfxFooterMagic.end(),
+                       reinterpret_cast<const char*>(sfx_bytes.data() + footer_offset)),
+            "SFX footer signature is missing");
+    auto read_footer_u64 = [&](std::size_t offset) {
+        std::uint64_t value = 0;
+        for (unsigned int i = 0; i < 8; ++i) {
+            value |= static_cast<std::uint64_t>(sfx_bytes[offset + i]) << (i * 8U);
+        }
+        return value;
+    };
+    require(read_footer_u64(footer_offset + 8U) == stub_bytes.size(),
+            "SFX footer contains the wrong stub length");
+    require(read_footer_u64(footer_offset + 16U) == archive_bytes.size(),
+            "SFX footer contains the wrong archive length");
+
+    bool refused_overwrite = false;
+    try { rpk::create_sfx_installer(archive, stub, output, false); }
+    catch (const std::exception&) { refused_overwrite = true; }
+    require(refused_overwrite, "SFX builder overwrote an existing output without permission");
+    rpk::create_sfx_installer(archive, stub, output, true);
+}
+
 void test_legacy_archive_compatibility() {
     const std::filesystem::path fixture_dir = RPK_TEST_FIXTURE_DIR;
     TestDirectory temporary;
@@ -418,6 +472,9 @@ int main() {
         std::cerr << "[ RUN      ] pack/extract/corruption" << std::endl;
         test_pack_extract_and_corruption();
         std::cerr << "[       OK ] pack/extract/corruption" << std::endl;
+        std::cerr << "[ RUN      ] self-extracting installer builder" << std::endl;
+        test_sfx_builder();
+        std::cerr << "[       OK ] self-extracting installer builder" << std::endl;
         std::cerr << "[ RUN      ] legacy archive compatibility" << std::endl;
         test_legacy_archive_compatibility();
         std::cerr << "[       OK ] legacy archive compatibility" << std::endl;
