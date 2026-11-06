@@ -277,7 +277,14 @@ void test_pack_extract_and_corruption() {
     embedded.insert(embedded.end(), precomp_stream.begin(), precomp_stream.end());
     embedded.insert(embedded.end(), {'T','A','I','L'});
     write_bytes(source / "nested" / "embedded-zlib.dat", embedded);
-    std::vector<std::uint8_t> media(160U * 1024U, 0x31U);
+    std::vector<std::uint8_t> media(160U * 1024U);
+    std::uint32_t media_state = 0x6d2b79f5U;
+    for (auto& value : media) {
+        media_state ^= media_state << 13U;
+        media_state ^= media_state >> 17U;
+        media_state ^= media_state << 5U;
+        value = static_cast<std::uint8_t>(media_state & 0xffU);
+    }
     media[4] = 'f'; media[5] = 't'; media[6] = 'y'; media[7] = 'p';
     write_bytes(source / "sample.mp4", media);
 
@@ -302,7 +309,7 @@ void test_pack_extract_and_corruption() {
         saw_zstd = saw_zstd || block.codec == rpk::Codec::ZstdLong;
         saw_store = saw_store || block.codec == rpk::Codec::Store;
     }
-    require(saw_lzma && saw_zstd && saw_store, "Automatic type-aware selection did not exercise all block codecs");
+    require(saw_lzma && saw_zstd && saw_store, "Adaptive sample selection did not exercise LZMA2, Zstandard, and Store on the representative fixtures");
     std::uint64_t raw_bytes = 0;
     std::uint64_t stored_bytes = 0;
     for (const auto& file : info.files) raw_bytes += file.size;
