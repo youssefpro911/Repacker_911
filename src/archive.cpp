@@ -252,7 +252,7 @@ void compress_xz(const std::vector<std::uint8_t>& input,
 
     stream.next_in = input.data();
     stream.avail_in = input.size();
-    std::array<std::uint8_t, 256U * 1024U> out_buffer{};
+    std::vector<std::uint8_t> out_buffer(256U * 1024U);
     lzma_ret result = LZMA_OK;
     try {
         do {
@@ -301,7 +301,7 @@ void compress_zstd_long(const std::vector<std::uint8_t>& input,
         set_parameter(ZSTD_c_checksumFlag, 1, "frame checksum");
 
         ZSTD_inBuffer input_buffer{input.data(), input.size(), 0};
-        std::array<std::uint8_t, 256U * 1024U> output_buffer{};
+        std::vector<std::uint8_t> output_buffer(256U * 1024U);
         bool finished = false;
         while (!finished) {
             ZSTD_outBuffer out{output_buffer.data(), output_buffer.size(), 0};
@@ -406,8 +406,8 @@ void decompress_lzma2_block(std::ifstream& archive,
     const lzma_ret init_result = lzma_stream_decoder(&stream, decoder_memory_limit, 0);
     if (init_result != LZMA_OK) throw std::runtime_error("Unable to initialize LZMA2 decoder (liblzma error " + std::to_string(init_result) + ")");
 
-    std::array<std::uint8_t, 64U * 1024U> input_buffer{};
-    std::array<std::uint8_t, 256U * 1024U> output_buffer{};
+    std::vector<std::uint8_t> input_buffer(64U * 1024U);
+    std::vector<std::uint8_t> output_buffer(256U * 1024U);
     std::uint64_t unread = block.compressed_size;
     std::uint64_t uncompressed = 0;
     Sha256Hasher hasher;
@@ -479,8 +479,8 @@ void decompress_zstd_block(std::ifstream& archive,
         throw std::runtime_error(std::string("Unable to set Zstandard decoder memory limit: ") + ZSTD_getErrorName(window_result));
     }
 
-    std::array<std::uint8_t, 64U * 1024U> input_buffer{};
-    std::array<std::uint8_t, 256U * 1024U> output_buffer{};
+    std::vector<std::uint8_t> input_buffer(64U * 1024U);
+    std::vector<std::uint8_t> output_buffer(256U * 1024U);
     std::uint64_t unread = block.compressed_size;
     std::uint64_t uncompressed = 0;
     Sha256Hasher hasher;
@@ -538,7 +538,7 @@ void decompress_store_block(std::ifstream& archive,
     if (!archive) throw std::runtime_error("Unable to seek to a stored block in the archive");
     std::ofstream raw(raw_path, std::ios::binary | std::ios::trunc);
     if (!raw) throw std::runtime_error("Unable to create temporary block file: " + path_for_error(raw_path));
-    std::array<std::uint8_t, kIoBufferSize> buffer{};
+    std::vector<std::uint8_t> buffer(kIoBufferSize);
     std::uint64_t remaining = block.compressed_size;
     Sha256Hasher hasher;
     while (remaining > 0) {
@@ -909,7 +909,7 @@ void write_header(std::ostream& output, const std::vector<std::uint8_t>& manifes
 }
 
 void copy_stream(std::istream& input, std::ostream& output, const std::string& context) {
-    std::array<char, kIoBufferSize> buffer{};
+    std::vector<char> buffer(kIoBufferSize);
     while (input) {
         input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
         const std::streamsize count = input.gcount();
@@ -1203,7 +1203,7 @@ void pack_directory(const std::filesystem::path& source,
     };
 
     constexpr std::uint64_t kPrecompInputLimit = 64ULL * 1024ULL * 1024ULL;
-    std::array<char, kIoBufferSize> read_buffer{};
+    std::vector<char> read_buffer(kIoBufferSize);
     for (const auto& item : source_files) {
         const std::string& file_group = group_by_path.at(item.first);
         if (file_group != active_group) {
@@ -1483,7 +1483,7 @@ void extract_archive(const std::filesystem::path& archive_path,
             if (!output) throw std::runtime_error("Cannot open staging file for writing: " + info.files[file_index].path);
             output.seekp(static_cast<std::streamoff>(extent.file_offset), std::ios::beg);
             if (!output) throw std::runtime_error("Cannot seek within staging file: " + info.files[file_index].path);
-            std::array<char, kIoBufferSize> buffer{};
+            std::vector<char> buffer(kIoBufferSize);
             std::uint64_t remaining = extent.length;
             while (remaining > 0) {
                 const auto chunk = static_cast<std::streamsize>(std::min<std::uint64_t>(remaining, buffer.size()));
