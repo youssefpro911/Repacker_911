@@ -1,8 +1,8 @@
-# RPK — Milestone 4: type-aware codecs and parallel solid-block compression
+# RPK — Lossless Windows Compression Workspace
 
-RPK is a lossless folder archiver with a versioned binary container, solid LZMA2/XZ compression, Zstandard long-range compression, and cross-file content-defined deduplication. This delivery adds type-aware codec grouping and bounded parallel block compression to the scanner, deduplication, exact-match zlib precompression, CLI, and native Windows builder GUI from earlier milestones. A one-click Windows setup script is included; it bootstraps dependencies and builds the native executables on the user’s PC.
+RPK is a lossless folder archiver for Windows with a versioned binary container, LZMA2/XZ, Zstandard long-distance compression, content-defined deduplication, and SHA-256 integrity checks. The portable Windows package is built and tested by GitHub Actions, so users can download and run the prebuilt executables without installing a compiler or CMake.
 
-The application is still an **archive builder/extractor**, not a self-extracting installer. The Windows GUI drives the same tested C++ core as the CLI; it does not contain a separate archive implementation.
+The native Windows Builder has a dark, resizable workspace for scanning, optimizing, packing, verifying, extracting, and creating a self-extracting archive wrapper. The optional AI connection uses Jan Desktop's local OpenAI-compatible API; it does not require Ollama or a separate llama.cpp command-line app.
 
 ## Implemented in this version
 
@@ -14,12 +14,12 @@ The application is still an **archive builder/extractor**, not a self-extracting
 - Cross-file and within-file chunk deduplication. SHA-256 selects candidate matches; bytes are compared against a temporary raw-chunk spool before a reference is reused.
 - Exact shared extents in the archive manifest. Extraction reconstructs every file and verifies its SHA-256.
 - Conservative precompression for embedded RFC 1950 zlib streams: an embedded stream is replaced by decoded bytes only if the current zlib runtime can reproduce its exact original compressed bytes. Re-encoding parameters, stream checksum, transformed offset, sizes, and zlib runtime version are recorded in format 3.
-- Type grouping: similar file classifications are packed together; Auto uses LZMA2 for general binary content, Zstandard long-range for text/script and selected document groups, and Store for common already-compressed audio/video/archive/image formats.
+- Adaptive codec selection: Auto aggregates up to 512 KiB of representative sampled bytes per file classification, trial-compresses those samples with LZMA2 and Zstandard long-range, compares against Store, and chooses the smallest measured result for each group. Explicit codec selections remain available.
 - Bounded parallel block compression. Workers write to separate temporary block files; the main thread assembles them in deterministic block order. `--memory-mib` caps the scheduler's estimated in-flight memory envelope (it is a conservative estimate, not an operating-system hard limit).
 - CLI commands: `scan`, `pack`, `list`, `test`, and `extract`.
-- Native Win32 desktop GUI with a card-based Windows-style workspace, Segoe UI typography, and dedicated AI Assistant and Create Setup actions.
+- Native Win32 desktop GUI with a dark, resizable workspace, Segoe UI typography, live operation log, progress state, and Analyze, Optimize with Jan, Build, Verify, Extract, and Create Setup actions.
 - Self-extracting Windows setup stub that can be embedded with a single-file RPK archive and extracts/verifies the archive to a chosen destination.
-- Optional offline AI Advisor GUI that runs a selected GGUF model through llama.cpp directly; it does not require Ollama or a cloud API.
+- Optional Jan integration: Jan runs your selected local model; RPK sends aggregate folder statistics to Jan and validates its structured compression recommendations before applying settings. No file contents or file names are sent by the optimizer.
 - Unit/integration tests for SHA-256, deterministic chunk boundaries, scanner classification/entropy, deduplication, zlib precompression round-trip, archive round-trip, Unicode paths, empty files/directories, read-only attributes, legacy formats, and corruption rejection.
 
 ## Source layout
@@ -42,7 +42,10 @@ rpk_milestone4/
     precomp.hpp       Exact-match reversible zlib transform structures/API
     precomp.cpp       Bounded zlib stream detection, exact encode matching, rebuild
     main.cpp          CLI
-    gui_win32.cpp     Native Windows Builder GUI (Win32 controls)
+    jan_client.cpp    Loopback-only Jan Local API client
+    jan_client.hpp    Jan API settings and chat interface
+    gui_win32.cpp     Dark native Windows Builder GUI
+    ai_gui_win32.cpp  Jan connection and local model assistant
     rpk.manifest      Windows long-path-aware application manifest
     rpk.rc.in         Manifest resource template
   tests/
@@ -154,7 +157,7 @@ Options:
 
 Precompression is enabled by default for files up to 64 MiB. It scans files up to 64 MiB for RFC 1950 zlib-wrapped DEFLATE streams, validates the zlib checksum, and tries standard zlib compression levels 0–9 (default strategy, memory level 8). The scan is bounded to eight candidate streams per file, at most 16 MiB compressed input per candidate, and 128 MiB total decoded candidate data per file. It converts a stream only when the current zlib runtime regenerates the exact byte sequence. Candidate scanning is bounded; large files and unsupported streams are passed through unchanged. Version 3 and 4 archives record `zlibVersion()` and extraction refuses a different runtime version rather than risk generating different bytes. This is deliberately conservative: gzip-wrapped streams, raw DEFLATE streams, unusual zlib strategies, and streams that do not reproduce byte-for-byte are not transformed. Precompression can make the intermediate data larger; its purpose is to expose highly compressible decoded content to the outer solid codec, and it does not guarantee a smaller archive. Use `--no-precomp` for a baseline comparison.
 
-Auto groups files by scanner classification before building solid blocks. Known already-compressed audio/video/archive groups are stored directly; text/script and selected document groups use Zstandard long-range; remaining groups use LZMA2/XZ. Use `--codec` to force a codec for every group. Auto selection is a heuristic, not a promise that every input becomes smaller. The CDC settings are currently fixed: 64 KiB minimum, 256 KiB target, and 1 MiB maximum chunk size. A duplicate candidate is accepted only after a byte-for-byte comparison, even when its SHA-256 matches. Unique raw chunks are staged in a temporary file beside the archive while building; allow extra temporary disk space approximately equal to the unique source data.
+Auto groups files by scanner classification before building solid blocks. It collects up to 512 KiB of representative sampled bytes per group and measures LZMA2 and Zstandard long-range output sizes; Store is selected when neither codec meaningfully reduces the sample. The selected codec is used for the group's blocks. This extra probe happens during the source analysis phase; the activity log reports each selected group codec. Use `--codec` to force a codec for every group. Sample results guide selection but cannot guarantee a smaller result for every individual file. The CDC settings are currently fixed: 64 KiB minimum, 256 KiB target, and 1 MiB maximum chunk size. A duplicate candidate is accepted only after a byte-for-byte comparison, even when its SHA-256 matches. Unique raw chunks are staged in a temporary file beside the archive while building; allow extra temporary disk space approximately equal to the unique source data.
 
 ### Self-extracting Windows setup
 
