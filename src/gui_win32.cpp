@@ -337,10 +337,10 @@ void create_controls(HWND window) {
                                    BS_AUTOCHECKBOX | WS_TABSTOP, 630, 385, 230, 24,
                                    IDC_OVERWRITE, font);
 
-    button(L"Analyze source", IDC_SCAN, 50, 461, 140, 36);
-    button(L"Build archive", IDC_PACK, 205, 461, 160, 36);
-    button(L"Verify archive", IDC_VERIFY, 380, 461, 140, 36);
-    button(L"Extract archive", IDC_EXTRACT, 535, 461, 145, 36);
+    button(L"Analyze source", IDC_SCAN, 50, 467, 140, 36);
+    button(L"Build archive", IDC_PACK, 205, 467, 160, 36);
+    button(L"Verify archive", IDC_VERIFY, 380, 467, 140, 36);
+    button(L"Extract archive", IDC_EXTRACT, 535, 467, 145, 36);
 
     g_app->status = add_control(window, L"STATIC", L"Ready",
                                 SS_LEFT, 710, 456, 310, 20, IDC_STATUS, font);
