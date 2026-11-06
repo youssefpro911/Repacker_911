@@ -277,7 +277,7 @@ void create_controls(HWND window) {
     SendMessageW(g_app->preset,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"Balanced — preset 6"));
     SendMessageW(g_app->preset,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"Maximum — preset 9"));
     SendMessageW(g_app->preset,CB_SETCURSEL,1,0);
-    g_app->preset_note=make_label(window,L"Auto mode measures representative bytes from each file group before selecting a codec.",IDC_LABEL_PRESET_NOTE);
+    g_app->preset_note=make_label(window,L"Adaptive mode tests each actual solid block and picks the best measured lossless codec.",IDC_LABEL_PRESET_NOTE);
 
     g_app->dictionary_label=make_label(window,L"Dictionary MiB",IDC_LABEL_DICT);
     g_app->dictionary=make_edit(window,L"64",IDC_DICT);
@@ -547,7 +547,7 @@ void on_optimize() {
             <<", deduplicate="<<(current_dedup?"true":"false")
             <<", precompress="<<(current_precomp?"true":"false")<<"\n\n";
         prompt<<"Recommend settings intended to improve compression ratio while preserving byte-identical restoration. "
-            <<"Prefer codec=auto because RPK now trial-compresses representative bytes from each group with LZMA2 and Zstandard and stores the group if neither beats Store. "
+            <<"Prefer codec=auto because RPK tests each actual solid block with LZMA2 and Zstandard, then chooses the smaller result or Store if neither wins. "
             <<"Do not recommend changing source files, disabling checksums, or lossy transforms. "
             <<"Select conservative settings compatible with a typical 16-32 GiB Windows PC. "
             <<"Return ONLY one JSON object with these exact keys: "

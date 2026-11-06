@@ -417,7 +417,7 @@ EncodedBlockResult compress_block_to_file(std::vector<std::uint8_t> input,
 
 Codec select_codec(CodecMode mode,
                   const std::string& classification,
-                  const std::vector<std::uint8_t>& group_sample,
+                  const std::vector<std::uint8_t>& candidate_bytes,
                   std::uint32_t preset,
                   std::uint32_t dictionary_mib,
                   std::uint64_t block_size) {
@@ -429,19 +429,35 @@ Codec select_codec(CodecMode mode,
     default: throw std::runtime_error("Invalid codec mode");
     }
 
-    if (group_sample.size() < 16U * 1024U) {
+    if (candidate_bytes.size() < 16U * 1024U) {
         if (classification == "Audio" || classification == "Video" ||
             classification == "Archive / package" || classification == "Image / texture") return Codec::Store;
         if (classification == "Text / script" || classification == "Text / unknown") return Codec::ZstdLong;
         return Codec::Lzma2;
     }
 
-    // Measure the actual bytes in this source group instead of relying only on extensions.
-    // A small representative sample is compressed with each candidate; the real solid
-    // block is then encoded once using the winner, so archive integrity is unchanged.
-    const std::size_t sample_size = std::min<std::size_t>(group_sample.size(), 512U * 1024U);
-    const std::vector<std::uint8_t> sample(group_sample.begin(),
-        group_sample.begin() + static_cast<std::ptrdiff_t>(sample_size));
+    // Probe a bounded, distributed sample from this actual solid block. Using its
+    // beginning, middle, and end avoids letting a file header decide the codec for
+    // an entire mixed-content block. The winning codec still encodes the untouched
+    // original bytes, so the transform remains lossless.
+    constexpr std::size_t kProbeLimit = 256U * 1024U;
+    std::vector<std::uint8_t> sample;
+    if (candidate_bytes.size() <= kProbeLimit) {
+        sample = candidate_bytes;
+    } else {
+        const std::size_t segment = kProbeLimit / 3U;
+        const std::size_t middle = (candidate_bytes.size() - segment) / 2U;
+        const std::size_t tail = candidate_bytes.size() - segment;
+        sample.reserve(segment * 3U);
+        sample.insert(sample.end(), candidate_bytes.begin(),
+                      candidate_bytes.begin() + static_cast<std::ptrdiff_t>(segment));
+        sample.insert(sample.end(),
+                      candidate_bytes.begin() + static_cast<std::ptrdiff_t>(middle),
+                      candidate_bytes.begin() + static_cast<std::ptrdiff_t>(middle + segment));
+        sample.insert(sample.end(),
+                      candidate_bytes.begin() + static_cast<std::ptrdiff_t>(tail),
+                      candidate_bytes.end());
+    }
     std::uint64_t best_size = sample.size();
     Codec best_codec = Codec::Store;
 
@@ -1226,8 +1242,6 @@ void pack_directory(const std::filesystem::path& source,
     std::vector<std::string> directories;
     std::unordered_map<std::string, std::string> group_by_path;
     std::unordered_map<std::string, double> entropy_by_path;
-    std::unordered_map<std::string, std::vector<std::uint8_t>> sample_by_group;
-    constexpr std::size_t kGroupProbeLimit = 512U * 1024U;
     std::filesystem::recursive_directory_iterator iterator(source_root, std::filesystem::directory_options::none, ec);
     if (ec) throw std::runtime_error("Cannot scan source folder: " + ec.message());
     const std::filesystem::recursive_directory_iterator end;
@@ -1250,12 +1264,6 @@ void pack_directory(const std::filesystem::path& source,
             const std::string group = classify_file_type(entry_path.extension().u8string(), sample);
             group_by_path.emplace(relative, group);
             entropy_by_path.emplace(relative, estimate_entropy_bits_per_byte(sample));
-            auto& group_sample = sample_by_group[group];
-            if (group_sample.size() < kGroupProbeLimit && !sample.empty()) {
-                const std::size_t take = std::min(sample.size(), kGroupProbeLimit - group_sample.size());
-                group_sample.insert(group_sample.end(), sample.begin(),
-                                    sample.begin() + static_cast<std::ptrdiff_t>(take));
-            }
             source_files.emplace_back(relative, entry_path);
         } else {
             throw std::runtime_error("Unsupported filesystem object in source folder: " + path_for_error(entry_path));
@@ -1401,7 +1409,17 @@ void pack_directory(const std::filesystem::path& source,
         auto owned_block = std::move(block);
         block = {};
         block.reserve(static_cast<std::size_t>(options.block_size));
-        const Codec codec = active_codec;
+        Codec codec = active_codec;
+        if (options.codec == CodecMode::Auto) {
+            codec = select_codec(options.codec, active_group, owned_block,
+                                 options.preset, options.dictionary_mib, options.block_size);
+            if (progress) {
+                const std::string chosen = codec == Codec::Lzma2 ? "LZMA2" :
+                    (codec == Codec::ZstdLong ? "Zstandard long-range" : "Store");
+                progress("Adaptive block probe " + std::to_string(block_index + 1U) + " -> " +
+                         chosen + " using up to 256 KiB sampled from this solid block");
+            }
+        }
         const auto part_path = parts_directory / ("block-" + std::to_string(block_index) + ".part");
         pending_blocks.push_back(PendingBlock{block_index,
             std::async(std::launch::async, [owned = std::move(owned_block), codec, &options, part_path]() mutable {
@@ -1490,14 +1508,19 @@ void pack_directory(const std::filesystem::path& source,
         if (file_group != active_group) {
             flush_block();
             active_group = file_group;
-            active_codec = select_codec(options.codec, active_group, sample_by_group.at(active_group),
-                                         options.preset, options.dictionary_mib, options.block_size);
+            active_codec = options.codec == CodecMode::Auto
+                ? Codec::Store
+                : select_codec(options.codec, active_group, {}, options.preset,
+                               options.dictionary_mib, options.block_size);
             if (progress) {
-                const std::string codec_name = active_codec == Codec::Lzma2 ? "LZMA2" :
-                    (active_codec == Codec::ZstdLong ? "Zstandard long-range" : "Store");
-                progress((options.codec == CodecMode::Auto ? "Adaptive sample test: " : "Codec group: ") +
-                         active_group + " -> " + codec_name + " (" +
-                         std::to_string(sample_by_group.at(active_group).size()) + " representative bytes)");
+                if (options.codec == CodecMode::Auto) {
+                    progress("Adaptive codec mode: each solid block in " + active_group +
+                             " will be tested before it is encoded");
+                } else {
+                    const std::string codec_name = active_codec == Codec::Lzma2 ? "LZMA2" :
+                        (active_codec == Codec::ZstdLong ? "Zstandard long-range" : "Store");
+                    progress("Codec group: " + active_group + " -> " + codec_name);
+                }
             }
         }
         FileRecord file;

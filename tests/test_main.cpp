@@ -390,6 +390,44 @@ void test_pack_extract_and_corruption() {
     rpk::verify_archive(no_dedup_archive);
 }
 
+void test_per_block_adaptive_codec() {
+    TestDirectory temporary;
+    const auto source = temporary.path() / "adaptive-source";
+    const auto archive = temporary.path() / "adaptive.rpk";
+
+    std::vector<std::uint8_t> compressible(2U * 1024U * 1024U, static_cast<std::uint8_t>('A'));
+    const auto high_entropy = patterned(2U * 1024U * 1024U, 0x13579bdfU);
+    write_bytes(source / "a.txt", compressible);
+    write_bytes(source / "b.txt", high_entropy);
+
+    rpk::PackOptions options;
+    options.preset = 1;
+    options.dictionary_mib = 1;
+    options.block_size = 1ULL * 1024ULL * 1024ULL;
+    options.threads = 1;
+    options.memory_limit_mib = 512;
+    options.codec = rpk::CodecMode::Auto;
+    options.deduplicate = false;
+    options.precompress = false;
+
+    std::vector<std::string> messages;
+    rpk::pack_directory(source, archive, options,
+        [&](const std::string& message) { messages.push_back(message); });
+    const auto info = rpk::read_archive(archive);
+    bool has_compressed_block = false;
+    bool has_stored_block = false;
+    for (const auto& block : info.blocks) {
+        if (block.codec == rpk::Codec::Store) has_stored_block = true;
+        else has_compressed_block = true;
+    }
+    require(has_compressed_block && has_stored_block,
+            "Adaptive block selection did not choose different codecs for compressible and high-entropy blocks");
+    require(std::any_of(messages.begin(), messages.end(), [](const std::string& message) {
+        return message.find("Adaptive block probe") != std::string::npos;
+    }), "Adaptive mode did not report its per-block decisions");
+    rpk::verify_archive(archive);
+}
+
 void test_sfx_builder() {
     TestDirectory temporary;
     const auto source = temporary.path() / "source";
@@ -479,6 +517,9 @@ int main() {
         std::cerr << "[ RUN      ] pack/extract/corruption" << std::endl;
         test_pack_extract_and_corruption();
         std::cerr << "[       OK ] pack/extract/corruption" << std::endl;
+        std::cerr << "[ RUN      ] per-block adaptive codec selection" << std::endl;
+        test_per_block_adaptive_codec();
+        std::cerr << "[       OK ] per-block adaptive codec selection" << std::endl;
         std::cerr << "[ RUN      ] self-extracting installer builder" << std::endl;
         test_sfx_builder();
         std::cerr << "[       OK ] self-extracting installer builder" << std::endl;

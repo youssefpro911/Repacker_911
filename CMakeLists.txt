@@ -54,7 +54,7 @@ if(WIN32)
     target_link_libraries(rpk_setup PRIVATE rpk_core comctl32 comdlg32 shell32 ole32)
 
     add_executable(rpk_ai WIN32 src/ai_gui_win32.cpp src/jan_client.cpp)
-    target_link_libraries(rpk_ai PRIVATE comdlg32 shell32 ole32 winhttp dwmapi)
+    target_link_libraries(rpk_ai PRIVATE comctl32 comdlg32 shell32 ole32 winhttp dwmapi)
 
     if(MSVC)
         foreach(target rpk_gui rpk_setup rpk_ai)
