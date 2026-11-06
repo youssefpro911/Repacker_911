@@ -286,7 +286,7 @@ private:
 void compress_xz(const std::vector<std::uint8_t>& input,
                  std::uint32_t preset,
                  std::uint32_t dictionary_mib,
-                 std::ofstream& output,
+                 std::ostream& output,
                  std::uint64_t& compressed_size) {
     lzma_options_lzma options{};
     if (lzma_lzma_preset(&options, preset)) throw std::runtime_error("Invalid LZMA2 preset");
@@ -330,7 +330,7 @@ void compress_xz(const std::vector<std::uint8_t>& input,
 void compress_zstd_long(const std::vector<std::uint8_t>& input,
                         std::uint32_t preset,
                         std::uint64_t block_size,
-                        std::ofstream& output,
+                        std::ostream& output,
                         std::uint64_t& compressed_size) {
     ZSTD_CCtx* context = ZSTD_createCCtx();
     if (context == nullptr) throw std::runtime_error("Unable to allocate a Zstandard compression context");
@@ -415,7 +415,12 @@ EncodedBlockResult compress_block_to_file(std::vector<std::uint8_t> input,
     return result;
 }
 
-Codec select_codec(CodecMode mode, const std::string& classification) {
+Codec select_codec(CodecMode mode,
+                  const std::string& classification,
+                  const std::vector<std::uint8_t>& group_sample,
+                  std::uint32_t preset,
+                  std::uint32_t dictionary_mib,
+                  std::uint64_t block_size) {
     switch (mode) {
     case CodecMode::Lzma2: return Codec::Lzma2;
     case CodecMode::ZstdLong: return Codec::ZstdLong;
@@ -423,20 +428,49 @@ Codec select_codec(CodecMode mode, const std::string& classification) {
     case CodecMode::Auto: break;
     default: throw std::runtime_error("Invalid codec mode");
     }
-    if (classification == "Audio" || classification == "Video" ||
-        classification == "Archive / package" || classification == "PNG image" ||
-        classification == "JPEG image" || classification == "ZIP archive" ||
-        classification == "7-Zip archive" || classification == "RAR archive" ||
-        classification == "Gzip stream" || classification == "ISO media / MP4" ||
-        classification == "Ogg audio" || classification == "MP3 audio" ||
-        classification == "WAV audio") {
+
+    if (group_sample.size() < 16U * 1024U) {
+        if (classification == "Audio" || classification == "Video" ||
+            classification == "Archive / package" || classification == "Image / texture") return Codec::Store;
+        if (classification == "Text / script" || classification == "Text / unknown") return Codec::ZstdLong;
+        return Codec::Lzma2;
+    }
+
+    // Measure the actual bytes in this source group instead of relying only on extensions.
+    // A small representative sample is compressed with each candidate; the real solid
+    // block is then encoded once using the winner, so archive integrity is unchanged.
+    const std::size_t sample_size = std::min<std::size_t>(group_sample.size(), 512U * 1024U);
+    const std::vector<std::uint8_t> sample(group_sample.begin(),
+        group_sample.begin() + static_cast<std::ptrdiff_t>(sample_size));
+    std::uint64_t best_size = sample.size();
+    Codec best_codec = Codec::Store;
+
+    try {
+        std::ostringstream probe(std::ios::out | std::ios::binary);
+        std::uint64_t encoded = 0;
+        compress_xz(sample, preset, std::max<std::uint32_t>(1U, std::min<std::uint32_t>(dictionary_mib, 8U)),
+                    probe, encoded);
+        if (encoded < best_size) { best_size = encoded; best_codec = Codec::Lzma2; }
+    } catch (...) {
+        // A failed probe simply removes that candidate; final encoding remains guarded separately.
+    }
+
+    try {
+        std::ostringstream probe(std::ios::out | std::ios::binary);
+        std::uint64_t encoded = 0;
+        const std::uint64_t probe_block = std::max<std::uint64_t>(1ULL * 1024ULL * 1024ULL,
+            std::min<std::uint64_t>(block_size, 8ULL * 1024ULL * 1024ULL));
+        compress_zstd_long(sample, preset, probe_block, probe, encoded);
+        if (encoded < best_size) { best_size = encoded; best_codec = Codec::ZstdLong; }
+    } catch (...) {
+        // Keep the best successful candidate.
+    }
+
+    // Avoid spending CPU on an encoding that cannot beat storing the sampled bytes.
+    if (best_size >= sample.size() - std::max<std::size_t>(64U, sample.size() / 200U)) {
         return Codec::Store;
     }
-    if (classification == "Text / script" || classification == "Text / unknown" ||
-        classification == "PDF document" || classification == "Possible zlib / DEFLATE stream") {
-        return Codec::ZstdLong;
-    }
-    return Codec::Lzma2;
+    return best_codec;
 }
 
 std::string ascii_case_key(const std::string& value);
@@ -1192,6 +1226,8 @@ void pack_directory(const std::filesystem::path& source,
     std::vector<std::string> directories;
     std::unordered_map<std::string, std::string> group_by_path;
     std::unordered_map<std::string, double> entropy_by_path;
+    std::unordered_map<std::string, std::vector<std::uint8_t>> sample_by_group;
+    constexpr std::size_t kGroupProbeLimit = 512U * 1024U;
     std::filesystem::recursive_directory_iterator iterator(source_root, std::filesystem::directory_options::none, ec);
     if (ec) throw std::runtime_error("Cannot scan source folder: " + ec.message());
     const std::filesystem::recursive_directory_iterator end;
@@ -1214,6 +1250,12 @@ void pack_directory(const std::filesystem::path& source,
             const std::string group = classify_file_type(entry_path.extension().u8string(), sample);
             group_by_path.emplace(relative, group);
             entropy_by_path.emplace(relative, estimate_entropy_bits_per_byte(sample));
+            auto& group_sample = sample_by_group[group];
+            if (group_sample.size() < kGroupProbeLimit && !sample.empty()) {
+                const std::size_t take = std::min(sample.size(), kGroupProbeLimit - group_sample.size());
+                group_sample.insert(group_sample.end(), sample.begin(),
+                                    sample.begin() + static_cast<std::ptrdiff_t>(take));
+            }
             source_files.emplace_back(relative, entry_path);
         } else {
             throw std::runtime_error("Unsupported filesystem object in source folder: " + path_for_error(entry_path));
@@ -1448,9 +1490,15 @@ void pack_directory(const std::filesystem::path& source,
         if (file_group != active_group) {
             flush_block();
             active_group = file_group;
-            active_codec = select_codec(options.codec, active_group);
-            if (progress) progress("Codec group: " + active_group + " -> " +
-                (active_codec == Codec::Lzma2 ? "LZMA2" : (active_codec == Codec::ZstdLong ? "Zstandard long-range" : "Store")));
+            active_codec = select_codec(options.codec, active_group, sample_by_group.at(active_group),
+                                         options.preset, options.dictionary_mib, options.block_size);
+            if (progress) {
+                const std::string codec_name = active_codec == Codec::Lzma2 ? "LZMA2" :
+                    (active_codec == Codec::ZstdLong ? "Zstandard long-range" : "Store");
+                progress((options.codec == CodecMode::Auto ? "Adaptive sample test: " : "Codec group: ") +
+                         active_group + " -> " + codec_name + " (" +
+                         std::to_string(sample_by_group.at(active_group).size()) + " representative bytes)");
+            }
         }
         FileRecord file;
         file.path = item.first;
