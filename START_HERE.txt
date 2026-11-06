@@ -1,0 +1,23 @@
+RPK MILESTONE 4 — WINDOWS QUICK START
+
+PREFERRED: READY-TO-RUN ZIP (NO LOCAL COMPILATION)
+1. Upload this project to a private GitHub repository, including the hidden .github folder.
+2. Open Actions -> Build Windows Release -> Run workflow.
+3. Download the RPK-Windows-x64 artifact from the completed workflow run.
+4. Extract the ZIP and double-click rpk_gui.exe.
+5. rpk.exe is the command-line version.
+
+Step-by-step instructions are in BUILD_ON_GITHUB.md.
+
+ALTERNATIVE: ONE-CLICK LOCAL SETUP
+Double-click Install-RPK.cmd. It automatically installs/locates the dependencies, configures,
+builds, tests, and installs RPK on this PC. This local route needs Visual Studio 2022/2026
+with Desktop development with C++, a Windows SDK, CMake, Git for Windows, and internet.
+
+IMPORTANT
+This delivered package does not contain precompiled Windows EXEs. The execution environment
+used to prepare it is Linux-only and has no Windows compiler/SDK. The GitHub Actions route
+creates the ready-to-run Windows binaries on a hosted Windows build runner, so your PC does
+not need to compile the program.
+
+Local setup log (if using Install-RPK.cmd): %TEMP%\RPK-Setup.log

@@ -1,0 +1,235 @@
+# RPK — Milestone 4: type-aware codecs and parallel solid-block compression
+
+RPK is a lossless folder archiver with a versioned binary container, solid LZMA2/XZ compression, Zstandard long-range compression, and cross-file content-defined deduplication. This delivery adds type-aware codec grouping and bounded parallel block compression to the scanner, deduplication, exact-match zlib precompression, CLI, and native Windows builder GUI from earlier milestones. A one-click Windows setup script is included; it bootstraps dependencies and builds the native executables on the user’s PC.
+
+The application is still an **archive builder/extractor**, not a self-extracting installer. The Windows GUI drives the same tested C++ core as the CLI; it does not contain a separate archive implementation.
+
+## Implemented in this version
+
+- Version 4 archive writer with a codec identifier for every solid block. Version 1, 2, and 3 archives remain readable.
+- Per-block codecs: LZMA2/XZ with CRC64, Zstandard with long-distance matching and frame checksum, or Store for already-compressed groups. Every block and restored file is SHA-256 verified.
+- 64-bit file sizes, offsets, and extents.
+- Recursive folder scanning, extension/magic-byte classification, and Shannon entropy estimates from the first 32 KiB of each file.
+- Deterministic content-defined chunking using a fixed Gear-hash table (64 KiB minimum, 256 KiB target, 1 MiB maximum by default).
+- Cross-file and within-file chunk deduplication. SHA-256 selects candidate matches; bytes are compared against a temporary raw-chunk spool before a reference is reused.
+- Exact shared extents in the archive manifest. Extraction reconstructs every file and verifies its SHA-256.
+- Conservative precompression for embedded RFC 1950 zlib streams: an embedded stream is replaced by decoded bytes only if the current zlib runtime can reproduce its exact original compressed bytes. Re-encoding parameters, stream checksum, transformed offset, sizes, and zlib runtime version are recorded in format 3.
+- Type grouping: similar file classifications are packed together; Auto uses LZMA2 for general binary content, Zstandard long-range for text/script and selected document groups, and Store for common already-compressed audio/video/archive/image formats.
+- Bounded parallel block compression. Workers write to separate temporary block files; the main thread assembles them in deterministic block order. `--memory-mib` caps the scheduler's estimated in-flight memory envelope (it is a conservative estimate, not an operating-system hard limit).
+- CLI commands: `scan`, `pack`, `list`, `test`, and `extract`.
+- Native Win32 GUI source/target for Windows: scan, build, verify, extract, preset/dictionary/block controls, codec selection, thread count, memory budget, dedup and precompression checkboxes, overwrite checkbox, path pickers, background worker, progress indicator, and activity log.
+- Unit/integration tests for SHA-256, deterministic chunk boundaries, scanner classification/entropy, deduplication, zlib precompression round-trip, archive round-trip, Unicode paths, empty files/directories, read-only attributes, legacy formats, and corruption rejection.
+
+## Source layout
+
+```text
+rpk_milestone4/
+  CMakeLists.txt
+  README.md
+  FORMAT.md
+  BUILD_STATUS.txt
+  src/
+    archive.hpp       Archive API and binary data structures
+    archive.cpp       Container, per-block codec encoders/decoders, bounded parallel compressor, pack/list/verify/extract
+    hash.hpp          SHA-256 interface
+    hash.cpp          OpenSSL EVP SHA-256 implementation
+    chunker.hpp       Streaming content-defined chunker API
+    chunker.cpp       Deterministic Gear-hash chunk boundaries
+    scanner.hpp       Scan report and classification API
+    scanner.cpp       Folder scanner, magic-byte classification, entropy sampling
+    precomp.hpp       Exact-match reversible zlib transform structures/API
+    precomp.cpp       Bounded zlib stream detection, exact encode matching, rebuild
+    main.cpp          CLI
+    gui_win32.cpp     Native Windows Builder GUI (Win32 controls)
+    rpk.manifest      Windows long-path-aware application manifest
+    rpk.rc.in         Manifest resource template
+  tests/
+    test_main.cpp     Unit and integration tests
+```
+
+## Requirements
+
+- C++17 compiler
+- CMake 3.20+
+- liblzma (XZ Utils)
+- OpenSSL Crypto
+- zlib (RFC 1950/1951 support)
+- Zstandard (libzstd 1.5+ recommended)
+- Windows GUI: Windows 10/11 SDK and MSVC (the GUI is a native Win32 application and has no Qt/Tauri runtime dependency)
+
+## Easy Windows setup (no manual CMake commands)
+
+For Windows 10/11 x64, extract this project folder and double-click `Install-RPK.cmd`.
+The setup script automatically:
+
+1. Detects your installed Visual Studio C++ toolchain and CMake generator.
+2. Downloads and bootstraps vcpkg in your user profile (not `C:\vcpkg`).
+3. Installs liblzma, OpenSSL, zlib, and Zstandard for x64.
+4. Configures, compiles, and tests the project automatically.
+5. Copies the GUI, CLI, and runtime DLLs into `%LOCALAPPDATA%\Programs\RPK`.
+6. Creates a desktop shortcut and Start Menu entry, registers an Apps & Features uninstall entry, and launches the GUI.
+
+**First-run requirements:** Visual Studio 2022 or 2026 with the **Desktop development with C++** workload and a Windows 10/11 SDK, CMake, Git for Windows, and an internet connection to download dependencies. The setup script does the CMake/vcpkg work for you; you do not need to type build commands. Setup diagnostics are written to `%TEMP%\RPK-Setup.log`.
+
+If a prerequisite is missing, install it from:
+- Visual Studio: https://visualstudio.microsoft.com/vs/community/
+- CMake: https://cmake.org/download/
+- Git: https://git-scm.com/download/win
+
+After installation, use the **RPK** desktop shortcut. The command-line executable is installed beside the GUI as `rpk.exe`.
+
+### Manual Windows build (optional)
+
+If you prefer to build manually, use an explicit Visual Studio generator (not the default NMake generator):
+
+```powershell
+cmake --help | Select-String "Visual Studio"
+cmake -S . -B build -G "Visual Studio 18 2026" -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows
+cmake --build build --config Release --parallel
+ctest --test-dir build -C Release --output-on-failure
+```
+
+For Visual Studio 2022, use `-G "Visual Studio 17 2022"` instead.
+
+## Build on Linux
+
+Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake pkg-config liblzma-dev libssl-dev zlib1g-dev libzstd-dev
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+The CLI and core tests build on Linux. `rpk_gui` is only defined for Windows.
+
+## CLI usage
+
+### Inspect a source folder
+
+```powershell
+rpk scan "D:\Games\Example"
+```
+
+The scan groups files by the best available extension/magic-byte classification and reports sampled Shannon entropy (0–8 bits per byte). Entropy is a diagnostic estimate; it is not a guarantee of the compression ratio.
+
+### Build an archive
+
+```powershell
+rpk pack "D:\Games\Example" -o "D:\Backups\Example.rpk" --preset balanced
+```
+
+Higher compression effort and a larger dictionary:
+
+```powershell
+rpk pack "D:\Games\Example" -o "D:\Backups\Example-max.rpk" --preset max --dict-mib 128 --block-size-mib 64
+```
+
+Disable deduplication for a comparison run:
+
+```powershell
+rpk pack "D:\Games\Example" -o "D:\Backups\Example-no-dedup.rpk" --no-dedup
+```
+
+Options:
+
+| Option | Meaning |
+|---|---|
+| `--preset fast\|balanced\|max` | LZMA preset levels 1, 6, or 9 |
+| `--dict-mib N` | Dictionary size, 1–1024 MiB; default 64 MiB |
+| `--block-size-mib N` | Solid block size, 1–1024 MiB; default 64 MiB |
+| `--codec auto\|lzma2\|zstd-long\|store` | Select automatic type-aware grouping or force one codec |
+| `--threads N\|auto` | Maximum parallel block workers; 0/auto uses a safe system-derived count |
+| `--memory-mib N` | Approximate memory budget used to cap in-flight workers, 128–65536 MiB |
+| `--no-dedup` | Disable deduplication (content-defined chunking is still used) |
+| `--no-precomp` | Disable conservative exact-match zlib precompression |
+| `--force` | Replace an existing output archive |
+
+Precompression is enabled by default for files up to 64 MiB. It scans files up to 64 MiB for RFC 1950 zlib-wrapped DEFLATE streams, validates the zlib checksum, and tries standard zlib compression levels 0–9 (default strategy, memory level 8). The scan is bounded to eight candidate streams per file, at most 16 MiB compressed input per candidate, and 128 MiB total decoded candidate data per file. It converts a stream only when the current zlib runtime regenerates the exact byte sequence. Candidate scanning is bounded; large files and unsupported streams are passed through unchanged. Version 3 and 4 archives record `zlibVersion()` and extraction refuses a different runtime version rather than risk generating different bytes. This is deliberately conservative: gzip-wrapped streams, raw DEFLATE streams, unusual zlib strategies, and streams that do not reproduce byte-for-byte are not transformed. Precompression can make the intermediate data larger; its purpose is to expose highly compressible decoded content to the outer solid codec, and it does not guarantee a smaller archive. Use `--no-precomp` for a baseline comparison.
+
+Auto groups files by scanner classification before building solid blocks. Known already-compressed audio/video/archive groups are stored directly; text/script and selected document groups use Zstandard long-range; remaining groups use LZMA2/XZ. Use `--codec` to force a codec for every group. Auto selection is a heuristic, not a promise that every input becomes smaller. The CDC settings are currently fixed: 64 KiB minimum, 256 KiB target, and 1 MiB maximum chunk size. A duplicate candidate is accepted only after a byte-for-byte comparison, even when its SHA-256 matches. Unique raw chunks are staged in a temporary file beside the archive while building; allow extra temporary disk space approximately equal to the unique source data.
+
+### List, verify, and extract
+
+```powershell
+rpk list "D:\Backups\Example.rpk"
+rpk test "D:\Backups\Example.rpk"
+rpk extract "D:\Backups\Example.rpk" -C "D:\Games\Restored"
+```
+
+Extraction does not overwrite existing files unless `--overwrite` is specified. Block and file hashes are checked during extraction. The `test` command performs a full verification without leaving restored files behind.
+
+## Windows GUI
+
+Launch `rpk_gui.exe`:
+
+1. Choose a source folder and an archive path.
+2. Click **Analyze source** to review file classifications, sizes, and entropy estimates.
+3. Choose Fast/Balanced/Maximum, dictionary size, and solid block size. Deduplication is enabled by default.
+4. Click **Build archive**. Work runs on a background thread and messages appear in the activity log.
+5. Use **Open...** to select an existing RPK file, then click **Verify archive** or choose a destination and click **Extract archive**.
+
+The codec dropdown selects Auto, LZMA2, Zstandard long-range, or Store. Thread count (0 = automatic) and memory budget configure the bounded compression scheduler. The overwrite checkbox applies to an existing archive during build and existing files during extraction. The current GUI uses an indeterminate progress bar and logs stage messages; it does not yet show a percentage or ETA. Pause/resume/cancel is not implemented because the core operations do not yet expose safe cancellation points.
+
+## Archive format
+
+The fixed header is 56 bytes. Version 1 and 2 use the legacy manifest layout; version 2 allows exact shared extents for deduplicated chunks. Version 3 extends each file record with its stored/intermediate size and a list of reversible zlib transforms, and stores the required zlib runtime version once in the manifest. The reader accepts versions 1, 2, 3, and 4.
+
+Version 3 and 4 extraction reverse every transform before validating the original file size and SHA-256. It checks the re-encoded zlib stream SHA-256 and refuses to continue if the local zlib runtime version differs from the version recorded in the archive. This protects byte identity rather than silently accepting a different DEFLATE encoding.
+
+See [FORMAT.md](FORMAT.md) for the binary field layout.
+
+## Benchmarking
+
+Use the same source, output drive, machine, and compression preset for comparisons. Include duplicate-heavy content, text/config data, executable files, and already-compressed media. Do not infer game-folder results from a highly repetitive synthetic file alone.
+
+```powershell
+Measure-Command { .\build\Release\rpk.exe pack "D:\Games\Example" -o "D:\Bench\with-dedup.rpk" --preset balanced }
+Measure-Command { .\build\Release\rpk.exe pack "D:\Games\Example" -o "D:\Bench\without-dedup.rpk" --preset balanced --no-dedup }
+Measure-Command { .\build\Release\rpk.exe test "D:\Bench\with-dedup.rpk" }
+Get-Item "D:\Bench\with-dedup.rpk", "D:\Bench\without-dedup.rpk" | Select-Object Name,Length
+```
+
+Record source bytes, archive bytes, build time, verify/extract time, peak RAM, CPU, preset, dictionary, block size, and temporary disk usage. Calculate ratio as `source bytes / archive bytes` and saved space as `1 - archive bytes / source bytes`.
+
+## Tests
+
+```bash
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+The integration test packs a tree with repeated content, Unicode filenames, empty files/directories, and a read-only file; it checks that deduplication actually reduces stored raw block bytes, extracts the archive, compares every file byte-for-byte and by SHA-256, and rejects a corrupted payload.
+
+## Current limitations
+
+- The block-level compressor uses bounded parallel workers. File scanning, content-defined chunking, deduplication lookup, and final archive assembly remain sequential.
+- Type classification selects a lossless codec heuristic; it is not a learned optimizer and does not guarantee the smallest result for every group.
+- No gzip/raw-DEFLATE precompression, brotli, neural compression, or AI optimizer yet.
+- No multi-volume splitting, password/encryption, installer stub, setup wizard, optional components, pause/resume/cancel, post-install actions, or uninstaller registration yet.
+- No preservation of ACLs, ownership, timestamps, alternate data streams, hardlink relationships, or sparse-file layout. Symlinks and non-regular filesystem objects are rejected.
+- The GUI is implemented in native Win32 source and now exposes codec, thread, and memory-budget settings. It still must be built and exercised on a Windows/MSVC machine; this development run verifies the Linux CLI/core only.
+- A >4 GiB end-to-end stress test has not been completed in this environment, although file sizes, offsets, and extents are 64-bit.
+
+## Milestone roadmap
+
+1. **M1 — Versioned container + solid LZMA2 + CLI extract:** complete.
+2. **M2 — Scanner + content-defined chunking + cross-file dedup + initial Windows builder GUI:** implemented; Windows-native build/runtime verification remains.
+3. **M3 — Conservative embedded zlib precompression with exact round-trip tests:** implemented with intentionally narrow matching rules.
+4. **M4 — Type-aware codec groups, Zstandard long-range, parallel blocks, memory-budget scheduler:** implemented in this version.
+5. M5 — Multi-volume archives and installer-oriented archive APIs.
+6. M6 — Windows installer stub/setup wizard, component selection, verification, progress controls, and uninstaller registration.
+7. M7 — Expanded builder GUI, JSON projects, size/time estimates, cancellation, and controlled post-install actions.
+8. M-AI-1 through M-AI-5 — Offline model loader and grammar-constrained decisions, sample-verified strategy advisor, classifier/script generator, log explainer, and optional neural mode.
+
+M4 is implemented in this source release. M5 and later milestones remain unimplemented.
+
+## Get a ready-to-run Windows ZIP without compiling locally
+
+For a prebuilt Windows package, upload this project to a private GitHub repository and run the included **Build Windows Release** workflow under the Actions tab. The workflow builds on a hosted Windows 2022 runner, runs tests, and uploads `RPK-Windows-x64.zip`. Extract it and launch `rpk_gui.exe`; the CLI is `rpk.exe`. Detailed steps are in `BUILD_ON_GITHUB.md`.
+
+The workspace used to prepare this source release was Linux-only, so no native Windows binary is falsely represented as prebuilt or verified here. The GitHub Actions workflow is the provided route for generating genuine Windows executables without compiling on your PC.

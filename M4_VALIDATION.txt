@@ -1,0 +1,37 @@
+RPK M4 VALIDATION
+
+Core automated suite:
+- GCC CTest: 1/1 passed.
+- Clang CTest: 1/1 passed.
+- Previous ASan/UBSan run: 1/1 passed.
+
+M4 CLI smoke test:
+- Scan 6 files: passed.
+- Pack with automatic codec grouping: passed.
+- Archive listed as version 4: passed.
+- Archive verification: passed.
+- Extraction with SHA-256 file verification: passed.
+- Recursive source/restored directory diff: identical.
+
+Smoke-test inputs:
+- Repetitive text.
+- JSON configuration.
+- Repeated binary pattern.
+- Empty file.
+- Unicode filename with non-ASCII text.
+- Video-like random data.
+
+Automatic codec decisions observed:
+- Text / script -> Zstandard long-range.
+- Text / unknown -> Zstandard long-range.
+- Video -> Store.
+
+Parallel scheduler checks:
+- 2-worker requested under 512 MiB budget was reduced to 1 worker by the scheduler.
+- 3-worker request under 2048 MiB budget ran 3 workers.
+- All resulting blocks verified.
+
+Not verified:
+- Native Windows/MSVC build and GUI launch.
+- One-click PowerShell setup execution on Windows.
+- Windows >4 GiB, long-path and low-disk-space tests.

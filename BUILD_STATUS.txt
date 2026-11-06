@@ -1,0 +1,38 @@
+RPK Milestone 4 — implementation and verification record
+
+Implemented in source:
+- M1: Versioned archive container, solid LZMA2/XZ blocks, CLI pack/list/test/extract.
+- M2: Scanner, extension/magic-byte classification, sampled entropy, content-defined chunking, cross-file deduplication, native Win32 GUI source.
+- M3: Conservative RFC 1950 zlib precompression. Only streams exactly reproducible by the local zlib runtime are transformed; original bytes are SHA-256 verified after reconstruction. Formats 1-3 remain readable.
+- M4: Per-block codec selection (LZMA2, Zstandard long-range, Store), type-aware automatic grouping, parallel block compression, deterministic ordered archive assembly, configurable worker count and an estimated in-flight memory budget. Format 4 archives retain compatibility with older archive versions.
+- Windows setup: Install-RPK.cmd + Install-RPK.ps1 automatically detect Visual Studio/CMake, bootstrap vcpkg, install dependencies, configure/build/test, install GUI and CLI, copy runtime DLLs, create shortcuts, and register an uninstall entry.
+
+Verified in this Linux environment:
+- GCC Release configure/build: passed.
+- GCC CTest: 1/1 passed.
+- Clang Release build: passed (see previous M3/M4 build log).
+- AddressSanitizer + UndefinedBehaviorSanitizer suite: passed in the earlier core run.
+- M4 CLI scan/pack/list/test/extract smoke test on 6 files: passed.
+- Test input included text, JSON, repeated data, an empty file, a Unicode filename, and a video-like file.
+- Automatic codec grouping selected Zstandard long-range for text groups and Store for the video-like group.
+- Each restored file passed SHA-256 verification; recursive directory diff was clean.
+- Core unit/integration tests cover hashing, chunking, scanner, zlib precompression, archive compatibility and corruption rejection.
+
+Windows packaging status:
+- The native Win32 GUI and one-click setup scripts are included in the source package.
+- A tested Windows .exe is NOT included. The execution environment for this delivery is Linux, has no MinGW/MSVC Windows cross-compiler or Windows SDK, and cannot reach external package servers. The setup script performs the native Windows compilation automatically on the user's Windows PC; this is not a precompiled binary release.
+- Native Windows/MSVC build and setup script execution remain unverified here.
+
+Still not implemented (later milestones):
+- Multi-volume archive splitting.
+- Self-extracting setup stub and full installer wizard.
+- Optional components/language selection, pause/resume/cancel, ETA and controlled post-install actions.
+- Full builder project JSON, estimates, and complete configuration workflow.
+- AI integration and experimental neural compression.
+
+Known limitations:
+- Windows setup requires Visual Studio 2022/2026 with Desktop development with C++, Windows SDK, CMake, Git, and internet on first run.
+- Precompression remains conservative and supports detected RFC 1950 zlib-wrapped DEFLATE streams only; gzip and raw DEFLATE are skipped.
+- The GUI uses an indeterminate progress indicator and activity log; percentage/ETA and pause/resume/cancel are not implemented.
+- The memory budget is a scheduler estimate, not an OS-enforced hard memory cap.
+- >4 GiB stress testing and native Windows long-path/low-disk-space runtime testing remain outstanding.
