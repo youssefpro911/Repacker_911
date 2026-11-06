@@ -1,25 +1,24 @@
-RPK — WINDOWS QUICK START
+RPK — WINDOWS X64 QUICK START
+==============================
 
-PREFERRED: READY-TO-RUN ZIP (NO LOCAL COMPILATION)
-1. Upload this project to a private GitHub repository, including the hidden .github folder.
-2. Open Actions -> Build Windows Release -> Run workflow.
-3. Download the RPK-Windows-x64 artifact from the completed workflow run.
-4. Extract the ZIP and double-click rpk_gui.exe.
-5. rpk.exe is the command-line version.
-6. rpk_setup.exe is the stub used by the rpk sfx command.
-7. rpk_ai.exe opens the optional local GGUF assistant; see AI-SETUP.md.
+1. Extract the complete RPK-Windows-x64 ZIP to a normal folder.
+2. Run rpk_gui.exe to open the dark Windows compression workspace.
+3. Choose a source folder and an output .rpk archive.
+4. Use Analyze source to inspect file classifications and entropy.
+5. Start Jan Desktop and its Local API Server if you want model-assisted settings.
+6. Click AI Assistant — Jan to configure the Jan URL/API key and select your model.
+7. Return to RPK Builder and click Optimize with Jan to get validated settings.
+8. Click Build archive. Adaptive codec mode probes representative samples for each file group.
+9. Verify the resulting archive before sharing or deleting source data.
+10. Use Verify archive and Extract archive to restore files; SHA-256 checks protect file integrity.
 
-Step-by-step instructions are in BUILD_ON_GITHUB.md.
+Included:
+- rpk_gui.exe  Windows graphical application
+- rpk.exe      Command-line application
+- rpk_setup.exe SFX extraction stub used by the rpk sfx command
+- rpk_ai.exe   Jan local API assistant window
 
-ALTERNATIVE: ONE-CLICK LOCAL SETUP
-Double-click Install-RPK.cmd. It automatically installs/locates the dependencies, configures,
-builds, tests, and installs RPK on this PC. This local route needs Visual Studio 2022/2026
-with Desktop development with C++, a Windows SDK, CMake, Git for Windows, and internet.
+Jan setup details are in AI-SETUP.md. RPK does not require Ollama or a separate llama.cpp CLI.
+The optional Jan app and model are installed separately; RPK connects to Jan on localhost.
 
-IMPORTANT
-This delivered package does not contain precompiled Windows EXEs. The execution environment
-used to prepare it is Linux-only and has no Windows compiler/SDK. The GitHub Actions route
-creates the ready-to-run Windows binaries on a hosted Windows build runner, so your PC does
-not need to compile the program.
-
-Local setup log (if using Install-RPK.cmd): %TEMP%\RPK-Setup.log
+This is a portable package. No local compiler or CMake installation is required.
