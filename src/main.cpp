@@ -1,5 +1,6 @@
 #include "archive.hpp"
 #include "scanner.hpp"
+#include "sfx.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -39,7 +40,8 @@ void print_help() {
         "  rpk pack <source-folder> -o <archive.rpk> [options]\n"
         "  rpk list <archive.rpk>\n"
         "  rpk test <archive.rpk>\n"
-        "  rpk extract <archive.rpk> -C <destination-folder> [--overwrite]\n\n"
+        "  rpk extract <archive.rpk> -C <destination-folder> [--overwrite]\n"
+        "  rpk sfx <archive.rpk> -o <setup.exe> [--stub rpk_setup.exe] [--force]\n\n"
         "Pack options:\n"
         "  --preset fast|balanced|max   LZMA preset (1, 6, or 9)\n"
         "  --dict-mib N                 LZMA2 dictionary size, 1..1024 MiB (default 64)\n"
@@ -202,6 +204,42 @@ int run(const std::vector<std::string>& args) {
                   << ", exact zlib precompression " << (options.precompress ? "enabled" : "disabled") << "\n";
         rpk::pack_directory(source, output, options, [](const std::string& message) { std::cout << message << '\n'; });
         return 0;
+    }
+
+    if (command == "sfx") {
+#ifdef _WIN32
+        if (args.size() < 5) throw std::runtime_error("sfx requires an archive and -o <setup.exe>");
+        const auto archive = path_from_arg(args[2]);
+        std::filesystem::path output;
+        std::filesystem::path stub;
+        bool overwrite = false;
+        for (std::size_t i = 3; i < args.size(); ++i) {
+            const std::string& option = args[i];
+            if (option == "-o" || option == "--output") {
+                if (i + 1 >= args.size()) throw std::runtime_error(option + " requires a path");
+                output = path_from_arg(args[++i]);
+            } else if (option == "--stub") {
+                if (i + 1 >= args.size()) throw std::runtime_error("--stub requires a path");
+                stub = path_from_arg(args[++i]);
+            } else if (option == "--force") {
+                overwrite = true;
+            } else {
+                throw std::runtime_error("Unknown SFX option: " + option);
+            }
+        }
+        if (output.empty()) throw std::runtime_error("sfx requires -o <setup.exe>");
+        if (stub.empty()) {
+            wchar_t module[MAX_PATH]{};
+            const DWORD length = GetModuleFileNameW(nullptr, module, MAX_PATH);
+            if (length == 0 || length >= MAX_PATH) throw std::runtime_error("Cannot locate rpk_setup.exe beside rpk.exe");
+            stub = std::filesystem::path(module).parent_path() / L"rpk_setup.exe";
+        }
+        rpk::create_sfx_installer(archive, stub, output, overwrite,
+            [](const std::string& message) { std::cout << message << '\n'; });
+        return 0;
+#else
+        throw std::runtime_error("Self-extracting Windows installers can only be created on Windows");
+#endif
     }
 
     if (command == "list") {

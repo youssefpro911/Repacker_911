@@ -5,9 +5,11 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shlobj.h>
+#include <shellapi.h>
 
 #include "archive.hpp"
 #include "scanner.hpp"
+#include "sfx.hpp"
 
 #include <atomic>
 #include <cwchar>
@@ -52,7 +54,9 @@ enum ControlId : int {
     IDC_EXTRACT,
     IDC_LOG,
     IDC_PROGRESS,
-    IDC_STATUS
+    IDC_STATUS,
+    IDC_SFX,
+    IDC_AI
 };
 
 struct UiMessage {
@@ -86,6 +90,7 @@ struct AppState {
     HWND log = nullptr;
     HWND progress = nullptr;
     HWND status = nullptr;
+    HWND ai_button = nullptr;
     HFONT font = nullptr;
     HFONT title_font = nullptr;
     HFONT heading_font = nullptr;
@@ -222,6 +227,43 @@ void browse_open_archive(HWND target) {
     if (GetOpenFileNameW(&dialog)) SetWindowTextW(target, path);
 }
 
+void browse_save_sfx() {
+    wchar_t path[MAX_PATH] = L"RPK-Setup.exe";
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = g_app->window;
+    dialog.lpstrFilter = L"Windows setup (*.exe)\0*.exe\0All files (*.*)\0*.*\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.lpstrDefExt = L"exe";
+    dialog.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+    if (GetSaveFileNameW(&dialog)) {
+        const auto archive = get_path(g_app->archive);
+        wchar_t module[MAX_PATH]{};
+        const DWORD length = GetModuleFileNameW(nullptr,module,MAX_PATH);
+        if(length==0||length>=MAX_PATH) throw std::runtime_error("Cannot locate the RPK setup stub.");
+        const auto stub=std::filesystem::path(module).parent_path()/L"rpk_setup.exe";
+        const auto output=std::filesystem::path(path);
+        const bool overwrite=SendMessageW(g_app->overwrite,BM_GETCHECK,0,0)==BST_CHECKED;
+        start_worker(L"Self-extracting setup creation",[archive,stub,output,overwrite](HWND window){
+            rpk::create_sfx_installer(archive,stub,output,overwrite,
+                [window](const std::string& message){post_log(window,message);});
+        });
+    }
+}
+
+void launch_ai_assistant(HWND owner) {
+    wchar_t module[MAX_PATH]{};
+    const DWORD length=GetModuleFileNameW(nullptr,module,MAX_PATH);
+    if(length==0||length>=MAX_PATH) throw std::runtime_error("Cannot locate the RPK application folder.");
+    const auto assistant=std::filesystem::path(module).parent_path()/L"rpk_ai.exe";
+    if(!std::filesystem::is_regular_file(assistant))
+        throw std::runtime_error("RPK AI Advisor is missing. Extract the complete RPK Windows ZIP.");
+    const auto result=reinterpret_cast<INT_PTR>(ShellExecuteW(owner,L"open",assistant.c_str(),nullptr,
+                                                               assistant.parent_path().c_str(),SW_SHOWNORMAL));
+    if(result<=32) throw std::runtime_error("Windows could not start RPK AI Advisor.");
+}
+
 void browse_save_archive(HWND target) {
     wchar_t path[MAX_PATH] = L"archive.rpk";
     OPENFILENAMEW dialog{};
@@ -289,6 +331,7 @@ void create_controls(HWND window) {
                            x, y, width, height, id, font);
     };
 
+    g_app->ai_button = button(L"AI Assistant", IDC_AI, 840, 28, 190, 36);
     g_app->source = edit(L"", IDC_SOURCE, 164, 160, 760);
     g_app->archive = edit(L"", IDC_ARCHIVE, 164, 198, 605);
     g_app->destination = edit(L"", IDC_DESTINATION, 164, 568, 760);
@@ -341,10 +384,11 @@ void create_controls(HWND window) {
                                    BS_AUTOCHECKBOX | WS_TABSTOP, 630, 385, 230, 24,
                                    IDC_OVERWRITE, font);
 
-    button(L"Analyze source", IDC_SCAN, 50, 467, 140, 36);
-    button(L"Build archive", IDC_PACK, 205, 467, 160, 36);
-    button(L"Verify archive", IDC_VERIFY, 380, 467, 140, 36);
-    button(L"Extract archive", IDC_EXTRACT, 535, 467, 145, 36);
+    button(L"Analyze source", IDC_SCAN, 50, 467, 122, 36);
+    button(L"Build archive", IDC_PACK, 185, 467, 138, 36);
+    button(L"Verify archive", IDC_VERIFY, 336, 467, 128, 36);
+    button(L"Extract archive", IDC_EXTRACT, 477, 467, 128, 36);
+    button(L"Create setup", IDC_SFX, 618, 467, 128, 36);
 
     g_app->status = add_control(window, L"STATIC", L"Ready",
                                 SS_LEFT, 710, 456, 310, 20, IDC_STATUS, font);
@@ -517,11 +561,12 @@ void paint_workspace(HWND window, HDC dc) {
 void draw_owner_button(const DRAWITEMSTRUCT& item) {
     const int id = static_cast<int>(item.CtlID);
     const bool primary = id == IDC_PACK;
+    const bool header_action = id == IDC_AI;
     const bool disabled = (item.itemState & ODS_DISABLED) != 0;
     const bool pressed = (item.itemState & ODS_SELECTED) != 0;
-    COLORREF fill = primary ? kUiBlue : RGB(255, 255, 255);
-    COLORREF border = primary ? kUiBlue : kUiBorder;
-    COLORREF text = primary ? RGB(255, 255, 255) : kUiText;
+    COLORREF fill = primary ? kUiBlue : (header_action ? RGB(39,58,88) : RGB(255,255,255));
+    COLORREF border = primary ? kUiBlue : (header_action ? RGB(67,91,126) : kUiBorder);
+    COLORREF text = (primary || header_action) ? RGB(255,255,255) : kUiText;
 
     if (disabled) {
         fill = RGB(236, 240, 246);
@@ -620,6 +665,8 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             case IDC_PACK: on_pack(); return 0;
             case IDC_VERIFY: on_verify(); return 0;
             case IDC_EXTRACT: on_extract(); return 0;
+            case IDC_SFX: browse_save_sfx(); return 0;
+            case IDC_AI: launch_ai_assistant(window); return 0;
             default: break;
             }
         } catch (const std::exception& error) {

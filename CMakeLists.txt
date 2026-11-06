@@ -28,6 +28,7 @@ add_library(rpk_core
     src/scanner.cpp
     src/precomp.cpp
     src/archive.cpp
+    src/sfx.cpp
 )
 target_include_directories(rpk_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(rpk_core PUBLIC LibLZMA::LibLZMA OpenSSL::Crypto ZLIB::ZLIB Threads::Threads ${RPK_ZSTD_TARGET})
@@ -48,11 +49,22 @@ endif()
 if(WIN32)
     add_executable(rpk_gui WIN32 src/gui_win32.cpp)
     target_link_libraries(rpk_gui PRIVATE rpk_core comctl32 comdlg32 shell32 ole32)
+
+    add_executable(rpk_setup WIN32 src/setup_win32.cpp)
+    target_link_libraries(rpk_setup PRIVATE rpk_core comctl32 comdlg32 shell32 ole32)
+
+    add_executable(rpk_ai WIN32 src/ai_gui_win32.cpp)
+    target_link_libraries(rpk_ai PRIVATE comdlg32 shell32 ole32)
+
     if(MSVC)
-        target_compile_options(rpk_gui PRIVATE /W4 /permissive-)
-        target_link_options(rpk_gui PRIVATE "/MANIFEST:EMBED" "/MANIFESTINPUT:${RPK_MANIFEST_PATH}")
+        foreach(target rpk_gui rpk_setup rpk_ai)
+            target_compile_options(${target} PRIVATE /W4 /permissive-)
+            target_link_options(${target} PRIVATE "/MANIFEST:EMBED" "/MANIFESTINPUT:${RPK_MANIFEST_PATH}")
+        endforeach()
     else()
-        target_compile_options(rpk_gui PRIVATE -Wall -Wextra -Wpedantic)
+        foreach(target rpk_gui rpk_setup rpk_ai)
+            target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+        endforeach()
     endif()
 endif()
 
@@ -69,5 +81,5 @@ add_test(NAME rpk_core_tests COMMAND rpk_tests)
 
 install(TARGETS rpk RUNTIME DESTINATION bin)
 if(WIN32)
-    install(TARGETS rpk_gui RUNTIME DESTINATION bin)
+    install(TARGETS rpk_gui rpk_setup rpk_ai RUNTIME DESTINATION bin)
 endif()

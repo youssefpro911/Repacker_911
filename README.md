@@ -17,7 +17,9 @@ The application is still an **archive builder/extractor**, not a self-extracting
 - Type grouping: similar file classifications are packed together; Auto uses LZMA2 for general binary content, Zstandard long-range for text/script and selected document groups, and Store for common already-compressed audio/video/archive/image formats.
 - Bounded parallel block compression. Workers write to separate temporary block files; the main thread assembles them in deterministic block order. `--memory-mib` caps the scheduler's estimated in-flight memory envelope (it is a conservative estimate, not an operating-system hard limit).
 - CLI commands: `scan`, `pack`, `list`, `test`, and `extract`.
-- Native Win32 GUI source/target for Windows: scan, build, verify, extract, preset/dictionary/block controls, codec selection, thread count, memory budget, dedup and precompression checkboxes, overwrite checkbox, path pickers, background worker, progress indicator, and activity log.
+- Native Win32 desktop GUI with a card-based Windows-style workspace, Segoe UI typography, and dedicated AI Assistant and Create Setup actions.
+- Self-extracting Windows setup stub that can be embedded with a single-file RPK archive and extracts/verifies the archive to a chosen destination.
+- Optional offline AI Advisor GUI that runs a selected GGUF model through llama.cpp directly; it does not require Ollama or a cloud API.
 - Unit/integration tests for SHA-256, deterministic chunk boundaries, scanner classification/entropy, deduplication, zlib precompression round-trip, archive round-trip, Unicode paths, empty files/directories, read-only attributes, legacy formats, and corruption rejection.
 
 ## Source layout
@@ -154,6 +156,16 @@ Precompression is enabled by default for files up to 64 MiB. It scans files up t
 
 Auto groups files by scanner classification before building solid blocks. Known already-compressed audio/video/archive groups are stored directly; text/script and selected document groups use Zstandard long-range; remaining groups use LZMA2/XZ. Use `--codec` to force a codec for every group. Auto selection is a heuristic, not a promise that every input becomes smaller. The CDC settings are currently fixed: 64 KiB minimum, 256 KiB target, and 1 MiB maximum chunk size. A duplicate candidate is accepted only after a byte-for-byte comparison, even when its SHA-256 matches. Unique raw chunks are staged in a temporary file beside the archive while building; allow extra temporary disk space approximately equal to the unique source data.
 
+### Self-extracting Windows setup
+
+Place `rpk_setup.exe` beside `rpk.exe`, then run:
+
+```powershell
+rpk sfx "D:\Backups\Example.rpk" -o "D:\Backups\Example-Setup.exe"
+```
+
+The resulting EXE contains the Windows setup stub plus the RPK archive. Run it to choose an extraction destination; all restored files are verified with SHA-256. SFX creation currently accepts a single-file archive, not a numbered volume set. The setup program is an extractor and verifier, not a full MSI installer: it does not register programs, services, shortcuts, or an uninstaller.
+
 ### Split archives across multiple files
 
 Use `--volume-size-mib` when the output needs to fit a file-size limit or be copied in smaller pieces:
@@ -185,7 +197,7 @@ Launch `rpk_gui.exe` to open the modern Windows workspace. The interface is arra
 3. Build the archive. Deduplication and exact-match zlib precompression are enabled by default.
 4. To inspect an existing archive, use **Open**, then choose **Verify archive** or select an extraction folder and click **Extract archive**.
 
-The advanced controls remain visible for users who need them: dictionary size, solid block size, codec override, worker count, memory budget, and the optional transforms. The main Build action is highlighted, while the activity panel shows operation messages and completion status. The progress indicator is indeterminate because the core operations do not yet expose byte-level progress. Pause/resume/cancel is not implemented yet.
+The advanced controls remain visible for users who need them: dictionary size, solid block size, codec override, worker count, memory budget, and the optional transforms. The main Build action is highlighted, while the activity panel shows operation messages and completion status. The progress indicator is indeterminate because the core operations do not yet expose byte-level progress. Pause/resume/cancel is not implemented yet. The Create Setup action writes an EXE containing the setup stub and a single-file archive. The AI Advisor requires llama.cpp and a separately downloaded GGUF model; those large files are intentionally not bundled with the application.
 
 ## Archive format
 
@@ -242,6 +254,6 @@ M4 is implemented in this source release. M5 and later milestones remain unimple
 
 ## Get a ready-to-run Windows ZIP without compiling locally
 
-For a prebuilt Windows package, upload this project to a private GitHub repository and run the included **Build Windows Release** workflow under the Actions tab. The workflow builds on a hosted Windows 2022 runner, runs tests, and uploads `RPK-Windows-x64.zip`. Extract it and launch `rpk_gui.exe`; the CLI is `rpk.exe`. Detailed steps are in `BUILD_ON_GITHUB.md`.
+For a prebuilt Windows package, upload this project to a private GitHub repository and run the included **Build Windows Release** workflow under the Actions tab. The workflow builds on a hosted Windows 2022 runner, runs tests, and uploads `RPK-Windows-x64.zip`. Extract it and launch `rpk_gui.exe`; the CLI is `rpk.exe`. The ZIP also contains `rpk_setup.exe` (SFX stub) and `rpk_ai.exe` (optional local-model advisor). Detailed steps are in `BUILD_ON_GITHUB.md`.
 
 The workspace used to prepare this source release was Linux-only, so no native Windows binary is falsely represented as prebuilt or verified here. The GitHub Actions workflow is the provided route for generating genuine Windows executables without compiling on your PC.

@@ -66,20 +66,22 @@ jobs:
           $release = Join-Path $env:GITHUB_WORKSPACE 'build\Release'
           $out = Join-Path $env:GITHUB_WORKSPACE 'RPK-Windows-x64'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          foreach ($exe in @('rpk.exe', 'rpk_gui.exe')) {
+          foreach ($exe in @('rpk.exe', 'rpk_gui.exe', 'rpk_setup.exe', 'rpk_ai.exe')) {
             $path = Join-Path $release $exe
             if (-not (Test-Path $path)) { throw "Expected output not found: $path" }
             Copy-Item -LiteralPath $path -Destination $out
           }
           Get-ChildItem -LiteralPath $release -Filter '*.dll' -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination $out -Force
-          foreach ($doc in @('README.md', 'FORMAT.md', 'START_HERE.txt', 'LICENSE')) {
+          foreach ($doc in @('README.md', 'FORMAT.md', 'START_HERE.txt', 'AI-SETUP.md', 'LICENSE')) {
             if (Test-Path $doc) { Copy-Item -LiteralPath $doc -Destination $out }
           }
           @'
           RPK — Portable Windows x64
           --------------------------
-          Run rpk_gui.exe to open the graphical builder.
+          Run rpk_gui.exe to open the graphical archive builder.
+          Run rpk_setup.exe only as the SFX stub embedded by the rpk sfx command.
+          Run rpk_ai.exe for the optional local GGUF model assistant.
           rpk.exe is the command-line version.
           Extract this folder anywhere and run the application.
           No local compiler or CMake installation is required.
