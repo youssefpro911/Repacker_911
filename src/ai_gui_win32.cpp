@@ -238,7 +238,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT msg,WPARAM wp,LPARAM lp) {
         layout(window);set_dark_title(window);return 0;
     }
     case WM_SIZE:if(g->endpoint)layout(window);InvalidateRect(window,nullptr,TRUE);return 0;
-    case WM_GETMINMAXINFO:{auto* info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize.x=920;info->ptMinTrackSize.y=760;return 0;}
+    case WM_GETMINMAXINFO:{auto* info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize.x=920;info->ptMinTrackSize.y=800;return 0;}
     case WM_PAINT:{PAINTSTRUCT ps{};HDC dc=BeginPaint(window,&ps);paint(window,dc);EndPaint(window,&ps);return 0;}
     case WM_ERASEBKGND:return 1;
     case WM_CTLCOLORSTATIC:{HDC dc=reinterpret_cast<HDC>(wp);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,kMuted);return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));}
