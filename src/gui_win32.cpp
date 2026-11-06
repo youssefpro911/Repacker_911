@@ -13,6 +13,7 @@
 #include <cwchar>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <iomanip>
 #include <memory>
 #include <sstream>
@@ -83,6 +84,11 @@ struct AppState {
     HWND progress = nullptr;
     HWND status = nullptr;
     HFONT font = nullptr;
+    HFONT title_font = nullptr;
+    HFONT heading_font = nullptr;
+    HFONT small_font = nullptr;
+    HBRUSH background_brush = nullptr;
+    HBRUSH edit_brush = nullptr;
     std::thread worker;
     std::atomic<bool> busy{false};
     bool close_after_work = false;
@@ -160,6 +166,7 @@ void set_busy(bool value) {
         EnableWindow(g_app->extract, TRUE);
         SendMessageW(g_app->progress, PBM_SETMARQUEE, FALSE, 0);
         SetWindowTextW(g_app->status, L"Ready");
+        SendMessageW(g_app->progress, PBM_SETPOS, 0, 0);
     }
 }
 
@@ -244,86 +251,117 @@ std::uint32_t read_unsigned_control(HWND control,
 }
 
 void create_controls(HWND window) {
-    g_app->font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    constexpr COLORREF kBackground = RGB(243, 246, 251);
+    constexpr COLORREF kInput = RGB(255, 255, 255);
+
+    g_app->font = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                              CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    g_app->title_font = CreateFontW(-30, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    g_app->heading_font = CreateFontW(-14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    g_app->small_font = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    g_app->background_brush = CreateSolidBrush(kBackground);
+    g_app->edit_brush = CreateSolidBrush(kInput);
+
     const HFONT font = g_app->font;
+    auto label = [&](const wchar_t* text, int x, int y, int width, int height = 22) {
+        add_control(window, L"STATIC", text, SS_LEFT, x, y, width, height, -1, font);
+    };
+    auto edit = [&](const wchar_t* text, int id, int x, int y, int width) {
+        HWND control = add_control(window, L"EDIT", text,
+                                   ES_AUTOHSCROLL | WS_TABSTOP,
+                                   x, y, width, 32, id, font, WS_EX_CLIENTEDGE);
+        if (control) SendMessageW(control, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN,
+                                  MAKELONG(8, 8));
+        return control;
+    };
+    auto button = [&](const wchar_t* text, int id, int x, int y, int width, int height = 34) {
+        return add_control(window, L"BUTTON", text, BS_OWNERDRAW | WS_TABSTOP,
+                           x, y, width, height, id, font);
+    };
 
-    add_control(window, L"STATIC", L"RPK Builder", SS_LEFT, 18, 12, 300, 28, -1, font);
-    add_control(window, L"STATIC", L"Milestone 4: type-aware LZMA2 / Zstandard long-range / Store with parallel block compression", SS_LEFT,
-                18, 40, 940, 22, -1, font);
+    g_app->source = edit(L"", IDC_SOURCE, 164, 160, 760);
+    g_app->archive = edit(L"", IDC_ARCHIVE, 164, 198, 605);
+    g_app->destination = edit(L"", IDC_DESTINATION, 164, 568, 760);
 
-    add_control(window, L"STATIC", L"Source folder", SS_LEFT, 18, 78, 110, 22, -1, font);
-    g_app->source = add_control(window, L"EDIT", L"", ES_AUTOHSCROLL | WS_TABSTOP | WS_BORDER, 132, 74, 710, 26, IDC_SOURCE, font);
-    add_control(window, L"BUTTON", L"Browse...", BS_PUSHBUTTON | WS_TABSTOP, 852, 74, 100, 26, IDC_SOURCE_BROWSE, font);
+    label(L"Source folder", 50, 165, 110);
+    button(L"Browse", IDC_SOURCE_BROWSE, 940, 159, 92);
+    label(L"Archive file", 50, 203, 110);
+    button(L"Open", IDC_ARCHIVE_OPEN, 780, 197, 90);
+    button(L"Save as", IDC_ARCHIVE_BROWSE, 880, 197, 152);
 
-    add_control(window, L"STATIC", L"Archive file", SS_LEFT, 18, 114, 110, 22, -1, font);
-    g_app->archive = add_control(window, L"EDIT", L"", ES_AUTOHSCROLL | WS_TABSTOP | WS_BORDER, 132, 110, 590, 26, IDC_ARCHIVE, font);
-    add_control(window, L"BUTTON", L"Open...", BS_PUSHBUTTON | WS_TABSTOP, 732, 110, 100, 26, IDC_ARCHIVE_OPEN, font);
-    add_control(window, L"BUTTON", L"Save as...", BS_PUSHBUTTON | WS_TABSTOP, 842, 110, 110, 26, IDC_ARCHIVE_BROWSE, font);
-
-    add_control(window, L"STATIC", L"Preset", SS_LEFT, 18, 154, 60, 22, -1, font);
-    g_app->preset = add_control(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL,
-                                80, 150, 150, 180, IDC_PRESET, font);
+    label(L"Preset", 50, 315, 62);
+    g_app->preset = add_control(window, L"COMBOBOX", L"",
+                                CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL,
+                                120, 309, 195, 180, IDC_PRESET, font, WS_EX_CLIENTEDGE);
     SendMessageW(g_app->preset, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Fast"));
-    SendMessageW(g_app->preset, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Balanced"));
+    SendMessageW(g_app->preset, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Balanced (recommended)"));
     SendMessageW(g_app->preset, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Maximum"));
     SendMessageW(g_app->preset, CB_SETCURSEL, 1, 0);
 
-    add_control(window, L"STATIC", L"Dictionary MiB", SS_LEFT, 250, 154, 105, 22, -1, font);
-    g_app->dictionary = add_control(window, L"EDIT", L"64", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP | WS_BORDER,
-                                    360, 150, 68, 26, IDC_DICT, font);
-    add_control(window, L"STATIC", L"Block MiB", SS_LEFT, 450, 154, 76, 22, -1, font);
-    g_app->block_size = add_control(window, L"EDIT", L"64", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP | WS_BORDER,
-                                    530, 150, 68, 26, IDC_BLOCK, font);
-    add_control(window, L"STATIC", L"Codec", SS_LEFT, 610, 154, 42, 22, -1, font);
-    g_app->codec = add_control(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL,
-                               655, 150, 150, 150, IDC_CODEC, font);
-    SendMessageW(g_app->codec, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Auto by file type"));
+    label(L"Balanced is a good choice for most folders.", 332, 315, 470);
+    label(L"Dictionary", 50, 353, 85);
+    g_app->dictionary = edit(L"64", IDC_DICT, 140, 347, 62);
+    label(L"Block", 220, 353, 58);
+    g_app->block_size = edit(L"64", IDC_BLOCK, 285, 347, 62);
+    label(L"Codec", 370, 353, 45);
+    g_app->codec = add_control(window, L"COMBOBOX", L"",
+                               CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL,
+                               420, 347, 155, 150, IDC_CODEC, font, WS_EX_CLIENTEDGE);
+    SendMessageW(g_app->codec, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Automatic"));
     SendMessageW(g_app->codec, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"LZMA2"));
     SendMessageW(g_app->codec, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Zstandard long"));
     SendMessageW(g_app->codec, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Store"));
     SendMessageW(g_app->codec, CB_SETCURSEL, 0, 0);
+    label(L"Threads", 600, 353, 105);
+    g_app->threads = edit(L"0", IDC_THREADS, 708, 347, 58);
+    label(L"Memory MiB", 790, 353, 78);
+    g_app->memory_limit = edit(L"1024", IDC_MEMORY, 875, 347, 76);
 
-    add_control(window, L"STATIC", L"Threads (0 = auto)", SS_LEFT, 18, 185, 115, 22, -1, font);
-    g_app->threads = add_control(window, L"EDIT", L"0", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP | WS_BORDER,
-                                 136, 181, 58, 26, IDC_THREADS, font);
-    add_control(window, L"STATIC", L"Memory MiB", SS_LEFT, 215, 185, 82, 22, -1, font);
-    g_app->memory_limit = add_control(window, L"EDIT", L"1024", ES_NUMBER | ES_AUTOHSCROLL | WS_TABSTOP | WS_BORDER,
-                                      302, 181, 72, 26, IDC_MEMORY, font);
-    g_app->dedup = add_control(window, L"BUTTON", L"Content-defined deduplication",
-                               BS_AUTOCHECKBOX | WS_TABSTOP, 410, 181, 230, 24, IDC_DEDUP, font);
+    g_app->dedup = add_control(window, L"BUTTON", L"Remove duplicate chunks",
+                               BS_AUTOCHECKBOX | WS_TABSTOP, 50, 385, 220, 24,
+                               IDC_DEDUP, font);
     SendMessageW(g_app->dedup, BM_SETCHECK, BST_CHECKED, 0);
-    g_app->precomp = add_control(window, L"BUTTON", L"Exact-match embedded zlib precompression", BS_AUTOCHECKBOX | WS_TABSTOP,
-                                 18, 214, 430, 24, IDC_PRECOMP, font);
+    g_app->precomp = add_control(window, L"BUTTON", L"Exact-match zlib precompression",
+                                 BS_AUTOCHECKBOX | WS_TABSTOP, 290, 385, 300, 24,
+                                 IDC_PRECOMP, font);
     SendMessageW(g_app->precomp, BM_SETCHECK, BST_CHECKED, 0);
-    g_app->overwrite = add_control(window, L"BUTTON", L"Overwrite existing archive/files", BS_AUTOCHECKBOX | WS_TABSTOP,
-                                   620, 214, 330, 24, IDC_OVERWRITE, font);
+    g_app->overwrite = add_control(window, L"BUTTON", L"Replace existing files",
+                                   BS_AUTOCHECKBOX | WS_TABSTOP, 630, 385, 230, 24,
+                                   IDC_OVERWRITE, font);
 
-    g_app->scan = add_control(window, L"BUTTON", L"Analyze source", BS_PUSHBUTTON | WS_TABSTOP,
-                              18, 247, 145, 34, IDC_SCAN, font);
-    g_app->pack = add_control(window, L"BUTTON", L"Build archive", BS_DEFPUSHBUTTON | WS_TABSTOP,
-                              175, 247, 145, 34, IDC_PACK, font);
-    g_app->verify = add_control(window, L"BUTTON", L"Verify archive", BS_PUSHBUTTON | WS_TABSTOP,
-                                332, 247, 145, 34, IDC_VERIFY, font);
+    button(L"Analyze source", IDC_SCAN, 50, 461, 140, 36);
+    button(L"Build archive", IDC_PACK, 205, 461, 160, 36);
+    button(L"Verify archive", IDC_VERIFY, 380, 461, 140, 36);
+    button(L"Extract archive", IDC_EXTRACT, 535, 461, 145, 36);
 
-    add_control(window, L"STATIC", L"Extract destination", SS_LEFT, 18, 297, 110, 22, -1, font);
-    g_app->destination = add_control(window, L"EDIT", L"", ES_AUTOHSCROLL | WS_TABSTOP | WS_BORDER,
-                                     132, 293, 710, 26, IDC_DESTINATION, font);
-    add_control(window, L"BUTTON", L"Browse...", BS_PUSHBUTTON | WS_TABSTOP,
-                852, 293, 100, 26, IDC_DESTINATION_BROWSE, font);
-    g_app->extract = add_control(window, L"BUTTON", L"Extract archive", BS_PUSHBUTTON | WS_TABSTOP,
-                                 18, 331, 145, 34, IDC_EXTRACT, font);
-
-    g_app->status = add_control(window, L"STATIC", L"Ready", SS_LEFT, 180, 338, 300, 20, IDC_STATUS, font);
-    g_app->progress = add_control(window, PROGRESS_CLASSW, L"", PBS_MARQUEE, 18, 377, 934, 18, IDC_PROGRESS, font);
+    g_app->status = add_control(window, L"STATIC", L"Ready",
+                                SS_LEFT, 710, 456, 310, 20, IDC_STATUS, font);
+    g_app->progress = add_control(window, PROGRESS_CLASSW, L"",
+                                  PBS_MARQUEE | PBS_SMOOTH, 710, 480, 310, 12,
+                                  IDC_PROGRESS, font);
     SendMessageW(g_app->progress, PBM_SETMARQUEE, FALSE, 0);
+    SendMessageW(g_app->progress, PBM_SETBKCOLOR, 0, RGB(231, 237, 246));
+    SendMessageW(g_app->progress, PBM_SETBARCOLOR, 0, RGB(52, 120, 246));
 
-    add_control(window, L"STATIC", L"Activity log", SS_LEFT, 18, 408, 200, 22, -1, font);
-    g_app->log = add_control(window, L"EDIT", L"Ready. Select a source folder to scan or build an archive.\r\n",
-                             ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_BORDER,
-                             18, 432, 934, 300, IDC_LOG, font);
+    label(L"Extract to", 50, 573, 105);
+    button(L"Browse", IDC_DESTINATION_BROWSE, 940, 567, 92);
+
+    g_app->log = add_control(window, L"EDIT",
+                             L"Ready. Choose a source folder, then build an archive or analyze it first.\r\n",
+                             ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_TABSTOP,
+                             50, 664, 980, 104, IDC_LOG, font, WS_EX_CLIENTEDGE);
     SendMessageW(g_app->log, EM_SETLIMITTEXT, 4U * 1024U * 1024U, 0);
-}
+    SendMessageW(g_app->log, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELONG(8, 8));
 
+    InvalidateRect(window, nullptr, TRUE);
+}
 void on_scan() {
     const auto source = get_path(g_app->source);
     start_worker(L"Source analysis", [source](HWND window) {
@@ -384,12 +422,187 @@ void on_extract() {
     });
 }
 
+
+constexpr COLORREF kUiBackground = RGB(243, 246, 251);
+constexpr COLORREF kUiCard = RGB(255, 255, 255);
+constexpr COLORREF kUiBorder = RGB(226, 232, 241);
+constexpr COLORREF kUiText = RGB(29, 41, 57);
+constexpr COLORREF kUiMuted = RGB(100, 116, 139);
+constexpr COLORREF kUiNavy = RGB(22, 36, 58);
+constexpr COLORREF kUiBlue = RGB(52, 120, 246);
+
+void draw_round_panel(HDC dc, int left, int top, int right, int bottom) {
+    HBRUSH brush = CreateSolidBrush(kUiCard);
+    HPEN pen = CreatePen(PS_SOLID, 1, kUiBorder);
+    HGDIOBJ old_brush = SelectObject(dc, brush);
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    RoundRect(dc, left, top, right, bottom, 16, 16);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+}
+
+void draw_section_title(HDC dc, const wchar_t* title, const wchar_t* subtitle,
+                        int x, int y) {
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, kUiText);
+    SelectObject(dc, g_app->heading_font);
+    TextOutW(dc, x, y, title, static_cast<int>(wcslen(title)));
+    if (subtitle && *subtitle) {
+        SetTextColor(dc, kUiMuted);
+        SelectObject(dc, g_app->small_font);
+        TextOutW(dc, x + 150, y + 1, subtitle, static_cast<int>(wcslen(subtitle)));
+    }
+}
+
+void paint_workspace(HWND window, HDC dc) {
+    RECT client{};
+    GetClientRect(window, &client);
+    HBRUSH background = CreateSolidBrush(kUiBackground);
+    FillRect(dc, &client, background);
+    DeleteObject(background);
+
+    RECT header{0, 0, client.right, 96};
+    HBRUSH header_brush = CreateSolidBrush(kUiNavy);
+    FillRect(dc, &header, header_brush);
+    DeleteObject(header_brush);
+    RECT accent{0, 93, client.right, 96};
+    HBRUSH accent_brush = CreateSolidBrush(kUiBlue);
+    FillRect(dc, &accent, accent_brush);
+    DeleteObject(accent_brush);
+
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(255, 255, 255));
+    SelectObject(dc, g_app->title_font);
+    TextOutW(dc, 30, 18, L"RPK Builder", 11);
+    SelectObject(dc, g_app->small_font);
+    SetTextColor(dc, RGB(205, 216, 231));
+    const wchar_t* tagline = L"Create, verify, and restore compact archives";
+    TextOutW(dc, 33, 62, tagline, static_cast<int>(wcslen(tagline)));
+
+    RECT badge{client.right - 190, 32, client.right - 28, 65};
+    HBRUSH badge_brush = CreateSolidBrush(RGB(39, 58, 88));
+    HPEN badge_pen = CreatePen(PS_SOLID, 1, RGB(67, 91, 126));
+    HGDIOBJ old_brush = SelectObject(dc, badge_brush);
+    HGDIOBJ old_pen = SelectObject(dc, badge_pen);
+    RoundRect(dc, badge.left, badge.top, badge.right, badge.bottom, 16, 16);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(badge_brush);
+    DeleteObject(badge_pen);
+    SelectObject(dc, g_app->heading_font);
+    SetTextColor(dc, RGB(230, 239, 252));
+    DrawTextW(dc, L"WINDOWS  •  X64", -1, &badge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    draw_round_panel(dc, 24, 110, client.right - 24, 245);
+    draw_round_panel(dc, 24, 260, client.right - 24, 420);
+    draw_round_panel(dc, 24, 435, client.right - 24, 510);
+    draw_round_panel(dc, 24, 526, client.right - 24, 610);
+    draw_round_panel(dc, 24, 626, client.right - 24, client.bottom - 10);
+
+    draw_section_title(dc, L"CREATE ARCHIVE", L"Choose what to compress and where to save it", 50, 126);
+    draw_section_title(dc, L"COMPRESSION", L"Balanced settings are recommended; advanced tuning is available below", 50, 276);
+    draw_section_title(dc, L"ACTIONS", L"Run a task using the paths above", 50, 449);
+    draw_section_title(dc, L"RESTORE", L"Choose a folder for extracted files", 50, 539);
+    draw_section_title(dc, L"ACTIVITY", L"Messages and verification results", 50, 639);
+}
+
+void draw_owner_button(const DRAWITEMSTRUCT& item) {
+    const int id = static_cast<int>(item.CtlID);
+    const bool primary = id == IDC_PACK;
+    const bool disabled = (item.itemState & ODS_DISABLED) != 0;
+    const bool pressed = (item.itemState & ODS_SELECTED) != 0;
+    COLORREF fill = primary ? kUiBlue : RGB(255, 255, 255);
+    COLORREF border = primary ? kUiBlue : kUiBorder;
+    COLORREF text = primary ? RGB(255, 255, 255) : kUiText;
+
+    if (disabled) {
+        fill = RGB(236, 240, 246);
+        border = RGB(228, 233, 241);
+        text = RGB(151, 163, 180);
+    } else if (pressed) {
+        fill = primary ? RGB(35, 96, 205) : RGB(239, 244, 251);
+        border = primary ? RGB(35, 96, 205) : RGB(203, 214, 229);
+    }
+
+    HBRUSH brush = CreateSolidBrush(fill);
+    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HGDIOBJ old_brush = SelectObject(item.hDC, brush);
+    HGDIOBJ old_pen = SelectObject(item.hDC, pen);
+    RECT rect = item.rcItem;
+    InflateRect(&rect, -1, -1);
+    RoundRect(item.hDC, rect.left, rect.top, rect.right, rect.bottom, 10, 10);
+    SelectObject(item.hDC, old_brush);
+    SelectObject(item.hDC, old_pen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+
+    SetBkMode(item.hDC, TRANSPARENT);
+    SetTextColor(item.hDC, text);
+    SelectObject(item.hDC, g_app->font);
+    wchar_t caption[128]{};
+    GetWindowTextW(item.hwndItem, caption, static_cast<int>(std::size(caption)));
+    DrawTextW(item.hDC, caption, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if ((item.itemState & ODS_FOCUS) != 0 && !disabled) {
+        RECT focus = rect;
+        InflateRect(&focus, -5, -5);
+        DrawFocusRect(item.hDC, &focus);
+    }
+}
+
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_CREATE:
         g_app->window = window;
         create_controls(window);
         return 0;
+    case WM_ERASEBKGND: {
+        RECT client{};
+        GetClientRect(window, &client);
+        FillRect(reinterpret_cast<HDC>(wparam), &client, g_app->background_brush);
+        return 1;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT paint{};
+        HDC dc = BeginPaint(window, &paint);
+        paint_workspace(window, dc);
+        EndPaint(window, &paint);
+        return 0;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC dc = reinterpret_cast<HDC>(wparam);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, kUiMuted);
+        return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+    }
+    case WM_CTLCOLOREDIT: {
+        HDC dc = reinterpret_cast<HDC>(wparam);
+        SetBkColor(dc, RGB(255, 255, 255));
+        SetTextColor(dc, kUiText);
+        return reinterpret_cast<LRESULT>(g_app->edit_brush);
+    }
+    case WM_CTLCOLORBTN: {
+        HDC dc = reinterpret_cast<HDC>(wparam);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, kUiText);
+        return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
+    }
+    case WM_CTLCOLORLISTBOX: {
+        HDC dc = reinterpret_cast<HDC>(wparam);
+        SetBkColor(dc, RGB(255, 255, 255));
+        SetTextColor(dc, kUiText);
+        return reinterpret_cast<LRESULT>(g_app->edit_brush);
+    }
+    case WM_DRAWITEM: {
+        const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
+        if (item && item->CtlType == ODT_BUTTON) {
+            draw_owner_button(*item);
+            return TRUE;
+        }
+        break;
+    }
     case WM_COMMAND:
         try {
             switch (LOWORD(wparam)) {
@@ -418,6 +631,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         set_busy(false);
         if (event) {
             append_log((event->succeeded ? L"SUCCESS: " : L"ERROR: ") + event->text);
+            SetWindowTextW(g_app->status, event->succeeded ? L"Completed successfully" : L"Operation failed — see details");
             if (!event->succeeded) MessageBoxW(window, event->text.c_str(), L"RPK Builder", MB_OK | MB_ICONERROR);
         }
         if (g_app->close_after_work) PostMessageW(window, WM_CLOSE, 0, 0);
@@ -435,6 +649,12 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         return 0;
     case WM_DESTROY:
         if (g_app->worker.joinable()) g_app->worker.join();
+        if (g_app->font) DeleteObject(g_app->font);
+        if (g_app->title_font) DeleteObject(g_app->title_font);
+        if (g_app->heading_font) DeleteObject(g_app->heading_font);
+        if (g_app->small_font) DeleteObject(g_app->small_font);
+        if (g_app->background_brush) DeleteObject(g_app->background_brush);
+        if (g_app->edit_brush) DeleteObject(g_app->edit_brush);
         PostQuitMessage(0);
         return 0;
     default:
@@ -460,7 +680,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     window_class.hInstance = instance;
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     window_class.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+    window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     window_class.lpszClassName = kWindowClass;
     if (RegisterClassExW(&window_class) == 0) {
         if (com_initialized) CoUninitialize();
@@ -468,8 +688,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
         return 1;
     }
 
-    HWND window = CreateWindowExW(0, kWindowClass, L"RPK Builder — LZMA2 + Zstandard + Deduplication",
-                                  WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 990, 810,
+    const DWORD window_style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    RECT window_rect{0, 0, 1080, 790};
+    AdjustWindowRectEx(&window_rect, window_style, FALSE, 0);
+    HWND window = CreateWindowExW(0, kWindowClass, L"RPK — Compression Workspace",
+                                  window_style, CW_USEDEFAULT, CW_USEDEFAULT,
+                                  window_rect.right - window_rect.left,
+                                  window_rect.bottom - window_rect.top,
                                   nullptr, nullptr, instance, nullptr);
     if (window == nullptr) {
         if (com_initialized) CoUninitialize();
