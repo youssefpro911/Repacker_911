@@ -165,15 +165,14 @@ Extraction does not overwrite existing files unless `--overwrite` is specified. 
 
 ## Windows GUI
 
-Launch `rpk_gui.exe`:
+Launch `rpk_gui.exe` to open the modern Windows workspace. The interface is arranged into five clear areas: **Create archive**, **Compression**, **Actions**, **Restore**, and **Activity**.
 
-1. Choose a source folder and an archive path.
-2. Click **Analyze source** to review file classifications, sizes, and entropy estimates.
-3. Choose Fast/Balanced/Maximum, dictionary size, and solid block size. Deduplication is enabled by default.
-4. Click **Build archive**. Work runs on a background thread and messages appear in the activity log.
-5. Use **Open...** to select an existing RPK file, then click **Verify archive** or choose a destination and click **Extract archive**.
+1. Choose the source folder and the output archive path. Use **Analyze source** first when you want to inspect file types and entropy estimates.
+2. Keep **Balanced (recommended)** for normal use, or choose Fast/Maximum.
+3. Build the archive. Deduplication and exact-match zlib precompression are enabled by default.
+4. To inspect an existing archive, use **Open**, then choose **Verify archive** or select an extraction folder and click **Extract archive**.
 
-The codec dropdown selects Auto, LZMA2, Zstandard long-range, or Store. Thread count (0 = automatic) and memory budget configure the bounded compression scheduler. The overwrite checkbox applies to an existing archive during build and existing files during extraction. The current GUI uses an indeterminate progress bar and logs stage messages; it does not yet show a percentage or ETA. Pause/resume/cancel is not implemented because the core operations do not yet expose safe cancellation points.
+The advanced controls remain visible for users who need them: dictionary size, solid block size, codec override, worker count, memory budget, and the optional transforms. The main Build action is highlighted, while the activity panel shows operation messages and completion status. The progress indicator is indeterminate because the core operations do not yet expose byte-level progress. Pause/resume/cancel is not implemented yet.
 
 ## Archive format
 
@@ -212,7 +211,7 @@ The integration test packs a tree with repeated content, Unicode filenames, empt
 - No gzip/raw-DEFLATE precompression, brotli, neural compression, or AI optimizer yet.
 - No multi-volume splitting, password/encryption, installer stub, setup wizard, optional components, pause/resume/cancel, post-install actions, or uninstaller registration yet.
 - No preservation of ACLs, ownership, timestamps, alternate data streams, hardlink relationships, or sparse-file layout. Symlinks and non-regular filesystem objects are rejected.
-- The GUI is implemented in native Win32 source and now exposes codec, thread, and memory-budget settings. It still must be built and exercised on a Windows/MSVC machine; this development run verifies the Linux CLI/core only.
+- The GUI is a native Win32 application with a modern card-based workspace, themed action buttons, and clearer operation status. It is compiled and tested by the Windows x64 GitHub Actions workflow. The progress indicator is indeterminate and safe cancellation is not implemented yet.
 - A >4 GiB end-to-end stress test has not been completed in this environment, although file sizes, offsets, and extents are 64-bit.
 
 ## Milestone roadmap
