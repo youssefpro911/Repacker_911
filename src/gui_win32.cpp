@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <functional>
 #include <iomanip>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -601,7 +602,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             draw_owner_button(*item);
             return TRUE;
         }
-        break;
+        return DefWindowProcW(window, message, wparam, lparam);
     }
     case WM_COMMAND:
         try {
