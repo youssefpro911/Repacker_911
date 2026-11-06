@@ -2,9 +2,17 @@ name: Build Windows Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional release tag, for example v0.5.0. Leave blank for a build-only run."
+        required: false
+        default: ""
+        type: string
   push:
     branches:
       - main
+    tags:
+      - 'v*'
     paths:
       - 'CMakeLists.txt'
       - 'src/**'
@@ -12,7 +20,11 @@ on:
       - '.github/workflows/windows-release.yml'
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: rpk-windows-release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows-x64:
@@ -102,3 +114,29 @@ jobs:
           path: RPK-Windows-x64.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish Windows package to GitHub Releases
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: RPK ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }} - Windows x64
+          body: |
+            ## RPK Windows x64
+
+            Download **RPK-Windows-x64.zip**, extract it, and run `rpk_gui.exe`.
+
+            Included:
+            - `rpk_gui.exe` — Windows desktop archive builder
+            - `rpk.exe` — command-line tool
+            - `rpk_setup.exe` — self-extracting installer stub for the `rpk sfx` command
+            - `rpk_ai.exe` — optional local GGUF assistant (requires a separate llama.cpp runtime and GGUF model)
+
+            The workflow compiles the Windows applications and runs the automated test suite before publishing this release. See `AI-SETUP.md` inside the ZIP for local AI setup.
+          files: RPK-Windows-x64.zip
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          make_latest: true
