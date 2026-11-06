@@ -541,9 +541,9 @@ void on_optimize() {
                 <<" bytes, average sampled entropy "<<std::fixed<<std::setprecision(2)<<average<<" bits/byte\n";
         }
         prompt<<"Current RPK settings: preset="<<(current_preset==0?1:(current_preset==2?9:6))
-            <<", dictionary_mib="<<current_dict<<", block_size_mib="<<current_block
+            <<", dictionary_mib="<<wide_to_utf8(current_dict)<<", block_size_mib="<<wide_to_utf8(current_block)
             <<", codec="<<codec_name(static_cast<std::size_t>(std::max<LRESULT>(0,current_codec)))
-            <<", threads="<<current_threads<<", memory_mib="<<current_memory
+            <<", threads="<<wide_to_utf8(current_threads)<<", memory_mib="<<wide_to_utf8(current_memory)
             <<", deduplicate="<<(current_dedup?"true":"false")
             <<", precompress="<<(current_precomp?"true":"false")<<"\n\n";
         prompt<<"Recommend settings intended to improve compression ratio while preserving byte-identical restoration. "
