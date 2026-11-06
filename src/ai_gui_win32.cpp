@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
