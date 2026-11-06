@@ -340,12 +340,24 @@ void test_legacy_archive_compatibility() {
 
 int main() {
     try {
+        std::cerr << "[ RUN      ] SHA-256" << std::endl;
         test_sha256();
+        std::cerr << "[       OK ] SHA-256" << std::endl;
+        std::cerr << "[ RUN      ] precompression round-trip" << std::endl;
         test_precomp_roundtrip();
+        std::cerr << "[       OK ] precompression round-trip" << std::endl;
+        std::cerr << "[ RUN      ] chunker determinism" << std::endl;
         test_chunker_determinism();
+        std::cerr << "[       OK ] chunker determinism" << std::endl;
+        std::cerr << "[ RUN      ] scanner" << std::endl;
         test_scanner();
+        std::cerr << "[       OK ] scanner" << std::endl;
+        std::cerr << "[ RUN      ] pack/extract/corruption" << std::endl;
         test_pack_extract_and_corruption();
+        std::cerr << "[       OK ] pack/extract/corruption" << std::endl;
+        std::cerr << "[ RUN      ] legacy archive compatibility" << std::endl;
         test_legacy_archive_compatibility();
+        std::cerr << "[       OK ] legacy archive compatibility" << std::endl;
         std::cout << "All RPK tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
