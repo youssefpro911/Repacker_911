@@ -32,7 +32,7 @@ struct TaskResult {
 struct App {
     HWND window=nullptr;
     HWND endpoint=nullptr, key=nullptr, model=nullptr, prompt=nullptr, answer=nullptr;
-    HWND refresh=nullptr, ask=nullptr, status=nullptr;
+    HWND refresh=nullptr, ask=nullptr, status=nullptr, docs=nullptr;
     HWND endpoint_label=nullptr, key_label=nullptr, model_label=nullptr, prompt_label=nullptr, answer_label=nullptr;
     HFONT body=nullptr, title=nullptr, heading=nullptr, small=nullptr;
     HBRUSH background=nullptr, card=nullptr, input=nullptr;
@@ -98,11 +98,14 @@ void set_dark_title(HWND window) {
     DwmSetWindowAttribute(window,19,&enabled,sizeof(enabled));
 }
 void save_settings() {
-    rpk::jan::save_settings(current_settings());
+    auto settings=current_settings();
+    if(settings.model.empty()) settings.model=rpk::jan::load_settings().model;
+    rpk::jan::save_settings(settings);
 }
 void refresh_models() {
     if(g->busy) return;
-    const auto settings=current_settings();
+    auto settings=current_settings();
+    if(settings.model.empty()) settings.model=rpk::jan::load_settings().model;
     rpk::jan::save_settings(settings);
     if(g->worker.joinable()) g->worker.join();
     set_busy(true);
@@ -156,7 +159,7 @@ void layout(HWND window) {
     RECT rc{};GetClientRect(window,&rc);
     const int w=rc.right, h=rc.bottom, pad=34, right=w-pad;
     const int inner=right-pad;
-    const int edit_x=180, btn_w=112;
+    const int edit_x=180;
     MoveWindow(g->endpoint_label,pad,157,130,24,TRUE);
     MoveWindow(g->endpoint,edit_x,151,std::max(280,w-edit_x-170),34,TRUE);
     MoveWindow(g->key_label,pad,201,130,24,TRUE);
@@ -167,7 +170,8 @@ void layout(HWND window) {
     MoveWindow(g->prompt_label,pad,307,inner,24,TRUE);
     MoveWindow(g->prompt,pad,338,inner,112,TRUE);
     MoveWindow(g->ask,pad,466,150,40,TRUE);
-    MoveWindow(g->status,pad+166,476,std::max(230,inner-170),24,TRUE);
+    MoveWindow(g->status,pad+166,476,std::max(180,inner-350),24,TRUE);
+    if(g->docs) MoveWindow(g->docs,right-165,466,165,40,TRUE);
     MoveWindow(g->answer_label,pad,532,inner,24,TRUE);
     MoveWindow(g->answer,pad,562,inner,std::max(100,h-586),TRUE);
 }
@@ -230,8 +234,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT msg,WPARAM wp,LPARAM lp) {
         g->answer=add_control(window,L"EDIT",L"1. Start Jan.\r\n2. Open Settings > Local API Server.\r\n3. Select a loaded local model and click Start Server.\r\n4. Keep the default address http://127.0.0.1:1337/v1 unless you changed it.\r\n5. Click Refresh models here, select the model, then Ask Jan.",
             ES_MULTILINE|ES_AUTOVSCROLL|ES_READONLY|WS_VSCROLL|WS_TABSTOP,IDC_ANSWER,g->body,WS_EX_CLIENTEDGE);
         SendMessageW(g->answer,EM_SETLIMITTEXT,2U*1024U*1024U,0);
-        HWND docs=add_control(window,L"BUTTON",L"Jan API instructions",BS_PUSHBUTTON|WS_TABSTOP,IDC_DOCS,g->body);
-        (void)docs;
+        g->docs=add_control(window,L"BUTTON",L"Jan API instructions",BS_OWNERDRAW|WS_TABSTOP,IDC_DOCS,g->body);
         layout(window);set_dark_title(window);return 0;
     }
     case WM_SIZE:if(g->endpoint)layout(window);InvalidateRect(window,nullptr,TRUE);return 0;
