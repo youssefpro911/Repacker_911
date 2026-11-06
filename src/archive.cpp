@@ -1140,6 +1140,8 @@ void split_archive_into_volumes(const std::filesystem::path& archive,
         throw;
     }
 
+    input.close();
+    if (input.fail()) throw std::runtime_error("Cannot close the source archive after splitting volumes");
     std::filesystem::remove(archive, ec);
     if (ec) {
         for (const auto& item : installed) {
