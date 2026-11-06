@@ -1560,6 +1560,11 @@ void extract_archive(const std::filesystem::path& archive_path,
                 encoded_input.read(reinterpret_cast<char*>(transformed.data()), static_cast<std::streamsize>(transformed.size()));
                 if (encoded_input.gcount() != static_cast<std::streamsize>(transformed.size())) throw std::runtime_error("Staged precompressed file is truncated: " + file.path);
             }
+            // Windows does not allow deleting/replacing a file while its input handle remains open.
+            encoded_input.close();
+            if (encoded_input.fail()) {
+                throw std::runtime_error("Cannot close staged precompressed file: " + file.path);
+            }
             const auto rebuilt = rebuild_zlib_streams(transformed, file.precomp);
             if (rebuilt.size() != file.size) throw std::runtime_error("Rebuilt file size does not match the original size: " + file.path);
             const auto rebuilt_path = work_path / ("precomp-rebuilt-" + std::to_string(i));
