@@ -531,20 +531,6 @@ void paint_workspace(HWND window, HDC dc) {
     const wchar_t* tagline = L"Create, verify, and restore compact archives";
     TextOutW(dc, 33, 62, tagline, static_cast<int>(wcslen(tagline)));
 
-    RECT badge{client.right - 190, 32, client.right - 28, 65};
-    HBRUSH badge_brush = CreateSolidBrush(RGB(39, 58, 88));
-    HPEN badge_pen = CreatePen(PS_SOLID, 1, RGB(67, 91, 126));
-    HGDIOBJ old_brush = SelectObject(dc, badge_brush);
-    HGDIOBJ old_pen = SelectObject(dc, badge_pen);
-    RoundRect(dc, badge.left, badge.top, badge.right, badge.bottom, 16, 16);
-    SelectObject(dc, old_brush);
-    SelectObject(dc, old_pen);
-    DeleteObject(badge_brush);
-    DeleteObject(badge_pen);
-    SelectObject(dc, g_app->heading_font);
-    SetTextColor(dc, RGB(230, 239, 252));
-    DrawTextW(dc, L"WINDOWS  •  X64", -1, &badge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
     draw_round_panel(dc, 24, 110, client.right - 24, 245);
     draw_round_panel(dc, 24, 260, client.right - 24, 420);
     draw_round_panel(dc, 24, 435, client.right - 24, 510);
