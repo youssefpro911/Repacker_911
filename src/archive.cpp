@@ -1272,6 +1272,7 @@ void pack_directory(const std::filesystem::path& source,
         entropy_sample.reserve(kEntropySampleLimit);
         std::uint64_t file_offset = 0;
         ContentDefinedChunker chunker;
+        std::error_code status_error;
         const auto file_bytes = std::filesystem::file_size(item.second, status_error);
         const bool can_precomp = options.precompress && !status_error && file_bytes <= kPrecompInputLimit;
 
