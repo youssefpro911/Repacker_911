@@ -116,12 +116,12 @@ jobs:
           retention-days: 30
 
       - name: Publish Windows package to GitHub Releases
-        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || (github.ref_type == 'tag' && github.ref_name || format('v0.5.0-build.{0}', github.run_number)) }}
           target_commitish: ${{ github.sha }}
-          name: RPK ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }} - Windows x64
+          name: RPK ${{ inputs.release_tag != '' && inputs.release_tag || (github.ref_type == 'tag' && github.ref_name || format('v0.5.0-build.{0}', github.run_number)) }} - Windows x64
           body: |
             ## RPK Windows x64
 
@@ -131,9 +131,9 @@ jobs:
             - `rpk_gui.exe` — Windows desktop archive builder
             - `rpk.exe` — command-line tool
             - `rpk_setup.exe` — self-extracting installer stub for the `rpk sfx` command
-            - `rpk_ai.exe` — optional local GGUF assistant (requires a separate llama.cpp runtime and GGUF model)
+            - `rpk_ai.exe` — optional Jan local API assistant (requires Jan Desktop and a model loaded in Jan)
 
-            The workflow compiles the Windows applications and runs the automated test suite before publishing this release. See `AI-SETUP.md` inside the ZIP for local AI setup.
+            The workflow compiles the Windows applications and runs the automated test suite before publishing this release. See `AI-SETUP.md` inside the ZIP for Jan setup. The release is created only after the Windows build and tests succeed.
           files: RPK-Windows-x64.zip
           overwrite_files: true
           fail_on_unmatched_files: true
