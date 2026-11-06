@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
