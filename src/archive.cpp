@@ -972,6 +972,187 @@ void copy_stream(std::istream& input, std::ostream& output, const std::string& c
     if (!input.eof()) throw std::runtime_error("Read failed while " + context);
 }
 
+
+std::filesystem::path archive_volume_path(const std::filesystem::path& base, std::uint32_t index) {
+    std::ostringstream suffix;
+    suffix << '.' << std::setw(3) << std::setfill('0') << index;
+    auto path = base;
+    path += suffix.str();
+    return path;
+}
+
+struct ResolvedArchiveFile {
+    std::filesystem::path path;
+    std::filesystem::path temporary_path;
+
+    ResolvedArchiveFile() = default;
+    ResolvedArchiveFile(const ResolvedArchiveFile&) = delete;
+    ResolvedArchiveFile& operator=(const ResolvedArchiveFile&) = delete;
+    ResolvedArchiveFile(ResolvedArchiveFile&& other) noexcept
+        : path(std::move(other.path)), temporary_path(std::move(other.temporary_path)) {
+        other.temporary_path.clear();
+    }
+    ~ResolvedArchiveFile() {
+        if (!temporary_path.empty()) {
+            std::error_code ec;
+            std::filesystem::remove(temporary_path, ec);
+        }
+    }
+};
+
+ResolvedArchiveFile resolve_archive_file(const std::filesystem::path& requested) {
+    std::filesystem::path base = requested;
+    bool explicitly_first_volume = requested.extension() == ".001";
+    if (explicitly_first_volume) base.replace_extension();
+
+    std::error_code ec;
+    if (!explicitly_first_volume && std::filesystem::exists(requested, ec) && !ec) {
+        ResolvedArchiveFile result;
+        result.path = requested;
+        return result;
+    }
+
+    const auto first_volume = archive_volume_path(base, 1);
+    if (!std::filesystem::exists(first_volume, ec) || ec) {
+        ResolvedArchiveFile result;
+        result.path = requested;
+        return result;
+    }
+
+    const auto merged_path = unique_child(std::filesystem::temp_directory_path(), "rpk-volume-merge-");
+    std::ofstream merged(merged_path, std::ios::binary | std::ios::trunc);
+    if (!merged) throw std::runtime_error("Cannot create temporary file to join RPK volumes");
+
+    std::uint32_t volume_count = 0;
+    try {
+        for (std::uint32_t index = 1; index <= 100000U; ++index) {
+            const auto part = archive_volume_path(base, index);
+            ec.clear();
+            if (!std::filesystem::exists(part, ec)) {
+                if (ec) throw std::runtime_error("Cannot inspect RPK volume " + path_for_error(part) + ": " + ec.message());
+                break;
+            }
+            std::ifstream input(part, std::ios::binary);
+            if (!input) throw std::runtime_error("Cannot open RPK volume: " + path_for_error(part));
+            copy_stream(input, merged, "joining RPK archive volumes");
+            ++volume_count;
+        }
+        if (volume_count == 0) throw std::runtime_error("No RPK archive volumes were found");
+        if (volume_count == 100000U && std::filesystem::exists(archive_volume_path(base, 100001U))) {
+            throw std::runtime_error("RPK volume set contains an unreasonable number of parts");
+        }
+        merged.flush();
+        if (!merged) throw std::runtime_error("Failed to finalize joined RPK archive");
+        merged.close();
+    } catch (...) {
+        merged.close();
+        std::filesystem::remove(merged_path, ec);
+        throw;
+    }
+
+    ResolvedArchiveFile result;
+    result.path = merged_path;
+    result.temporary_path = merged_path;
+    return result;
+}
+
+void split_archive_into_volumes(const std::filesystem::path& archive,
+                                std::uint32_t volume_size_mib,
+                                bool overwrite,
+                                ProgressCallback progress) {
+    if (volume_size_mib == 0) return;
+    if (volume_size_mib > 4096U) throw std::runtime_error("Volume size must be between 1 and 4096 MiB");
+
+    const std::uint64_t volume_bytes = static_cast<std::uint64_t>(volume_size_mib) * 1024ULL * 1024ULL;
+    std::error_code ec;
+    for (std::uint32_t i = 1; i <= 100000U; ++i) {
+        const auto existing = archive_volume_path(archive, i);
+        if (!std::filesystem::exists(existing, ec)) {
+            if (ec) throw std::runtime_error("Cannot inspect existing volume path: " + path_for_error(existing));
+            break;
+        }
+        if (!overwrite) throw std::runtime_error("Archive volume already exists (enable overwrite to replace it): " + path_for_error(existing));
+    }
+
+    const auto stage_dir = unique_child(archive.parent_path(), ".rpk-volume-stage-");
+    if (!std::filesystem::create_directory(stage_dir, ec) || ec) {
+        throw std::runtime_error("Cannot create temporary volume staging folder: " + ec.message());
+    }
+    struct StageCleanup {
+        std::filesystem::path path;
+        ~StageCleanup() {
+            std::error_code cleanup_error;
+            std::filesystem::remove_all(path, cleanup_error);
+        }
+    } stage_cleanup{stage_dir};
+
+    std::ifstream input(archive, std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot reopen completed archive for volume splitting");
+    std::vector<char> buffer(kIoBufferSize);
+    std::uint32_t volume_count = 0;
+    while (input.peek() != std::char_traits<char>::eof()) {
+        if (volume_count == 100000U) throw std::runtime_error("Archive requires too many volume parts");
+        ++volume_count;
+        const auto part_path = stage_dir / ("part-" + std::to_string(volume_count));
+        std::ofstream part(part_path, std::ios::binary | std::ios::trunc);
+        if (!part) throw std::runtime_error("Cannot create staged archive volume");
+        std::uint64_t remaining = volume_bytes;
+        while (remaining > 0 && input) {
+            const auto request = static_cast<std::streamsize>(std::min<std::uint64_t>(remaining, buffer.size()));
+            input.read(buffer.data(), request);
+            const std::streamsize got = input.gcount();
+            if (got < 0) throw std::runtime_error("Invalid read while splitting archive volumes");
+            if (got == 0) break;
+            part.write(buffer.data(), got);
+            if (!part) throw std::runtime_error("Cannot write staged archive volume");
+            remaining -= static_cast<std::uint64_t>(got);
+        }
+        part.flush();
+        if (!part) throw std::runtime_error("Cannot finalize staged archive volume");
+        part.close();
+        if (!input.eof() && input.bad()) throw std::runtime_error("Read error while splitting archive volumes");
+    }
+    if (volume_count == 0) throw std::runtime_error("Cannot split an empty archive");
+
+    for (std::uint32_t i = 1; i <= 100000U; ++i) {
+        const auto existing = archive_volume_path(archive, i);
+        ec.clear();
+        if (!std::filesystem::exists(existing, ec)) break;
+        std::filesystem::remove(existing, ec);
+        if (ec) throw std::runtime_error("Cannot replace old archive volume: " + path_for_error(existing) + " (" + ec.message() + ")");
+    }
+
+    std::vector<std::filesystem::path> installed;
+    try {
+        for (std::uint32_t i = 1; i <= volume_count; ++i) {
+            const auto staged = stage_dir / ("part-" + std::to_string(i));
+            const auto target = archive_volume_path(archive, i);
+            std::filesystem::rename(staged, target, ec);
+            if (ec) throw std::runtime_error("Cannot install archive volume: " + path_for_error(target) + " (" + ec.message() + ")");
+            installed.push_back(target);
+        }
+    } catch (...) {
+        for (const auto& item : installed) {
+            ec.clear();
+            std::filesystem::remove(item, ec);
+        }
+        throw;
+    }
+
+    std::filesystem::remove(archive, ec);
+    if (ec) {
+        for (const auto& item : installed) {
+            std::error_code remove_error;
+            std::filesystem::remove(item, remove_error);
+        }
+        throw std::runtime_error("Volumes were created but the single-file archive could not be removed: " + ec.message());
+    }
+    if (progress) {
+        progress("Archive split into " + std::to_string(volume_count) + " volume(s); first part: " +
+                 path_for_error(archive_volume_path(archive, 1)));
+    }
+}
+
 } // namespace
 
 void pack_directory(const std::filesystem::path& source,
@@ -1109,6 +1290,9 @@ void pack_directory(const std::filesystem::path& source,
     if (options.threads > 64U) throw std::runtime_error("Thread count must be between 1 and 64, or 0 for automatic selection");
     if (options.memory_limit_mib < 128U || options.memory_limit_mib > 65536U) {
         throw std::runtime_error("Memory limit must be between 128 and 65536 MiB");
+    }
+    if (options.volume_size_mib > 4096U) {
+        throw std::runtime_error("Volume size must be 0 (disabled) or between 1 and 4096 MiB");
     }
     const std::uint64_t memory_limit_bytes = static_cast<std::uint64_t>(options.memory_limit_mib) * 1024ULL * 1024ULL;
     const std::uint64_t estimated_worker_bytes = checked_add(
@@ -1379,15 +1563,21 @@ void pack_directory(const std::filesystem::path& source,
     }
     std::filesystem::rename(final_temp_path, output_abs, ec);
     if (ec) throw std::runtime_error("Cannot move completed archive into place: " + path_for_error(output_abs) + " (" + ec.message() + ")");
+    if (options.volume_size_mib != 0U) {
+        split_archive_into_volumes(output_abs, options.volume_size_mib, options.overwrite, progress);
+    }
     if (progress) {
         const std::uint64_t deduplicated = stored_total >= unique_total ? stored_total - unique_total : 0;
         progress("Precompression input: " + std::to_string(stored_total) + " bytes; deduplication removed " + std::to_string(deduplicated) + " transformed bytes");
-        progress("Archive created: " + path_for_error(output_abs));
+        progress(options.volume_size_mib == 0U
+            ? "Archive created: " + path_for_error(output_abs)
+            : "Archive volume set created: " + path_for_error(archive_volume_path(output_abs, 1)));
     }
 }
 
 ArchiveInfo read_archive(const std::filesystem::path& archive_path) {
-    std::ifstream input(archive_path, std::ios::binary);
+    ResolvedArchiveFile resolved = resolve_archive_file(archive_path);
+    std::ifstream input(resolved.path, std::ios::binary);
     if (!input) throw std::runtime_error("Cannot open archive: " + path_for_error(archive_path));
     input.seekg(0, std::ios::end);
     const auto end_position = input.tellg();
@@ -1452,7 +1642,8 @@ void extract_archive(const std::filesystem::path& archive_path,
                      const std::filesystem::path& destination,
                      bool overwrite,
                      ProgressCallback progress) {
-    const ArchiveInfo info = read_archive(archive_path);
+    ResolvedArchiveFile resolved = resolve_archive_file(archive_path);
+    const ArchiveInfo info = read_archive(resolved.path);
     const bool has_precomp = std::any_of(info.files.begin(), info.files.end(), [](const FileRecord& file) { return !file.precomp.empty(); });
     if (has_precomp && info.precomp_zlib_version != precomp_zlib_version()) {
         throw std::runtime_error("This archive requires zlib " + info.precomp_zlib_version + " to rebuild embedded DEFLATE streams exactly; current runtime is " + precomp_zlib_version());
@@ -1515,7 +1706,7 @@ void extract_archive(const std::filesystem::path& archive_path,
         }
     }
 
-    std::ifstream archive(archive_path, std::ios::binary);
+    std::ifstream archive(resolved.path, std::ios::binary);
     if (!archive) throw std::runtime_error("Cannot reopen archive for extraction");
     const auto raw_block = work_path / "verified-block.tmp";
     for (std::size_t block_index = 0; block_index < info.blocks.size(); ++block_index) {

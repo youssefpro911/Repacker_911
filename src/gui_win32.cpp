@@ -42,6 +42,7 @@ enum ControlId : int {
     IDC_CODEC,
     IDC_THREADS,
     IDC_MEMORY,
+    IDC_VOLUME,
     IDC_DEDUP,
     IDC_PRECOMP,
     IDC_OVERWRITE,
@@ -74,6 +75,7 @@ struct AppState {
     HWND codec = nullptr;
     HWND threads = nullptr;
     HWND memory_limit = nullptr;
+    HWND volume_size = nullptr;
     HWND dedup = nullptr;
     HWND precomp = nullptr;
     HWND overwrite = nullptr;
@@ -324,6 +326,8 @@ void create_controls(HWND window) {
     g_app->threads = edit(L"0", IDC_THREADS, 708, 347, 58);
     label(L"Memory MiB", 790, 353, 78);
     g_app->memory_limit = edit(L"1024", IDC_MEMORY, 875, 347, 76);
+    label(L"Volume", 960, 353, 48);
+    g_app->volume_size = edit(L"0", IDC_VOLUME, 1008, 347, 60);
 
     g_app->dedup = add_control(window, L"BUTTON", L"Remove duplicate chunks",
                                BS_AUTOCHECKBOX | WS_TABSTOP, 50, 385, 220, 24,
@@ -396,6 +400,7 @@ void on_pack() {
     options.codec = codec_index == 1 ? rpk::CodecMode::Lzma2 : (codec_index == 2 ? rpk::CodecMode::ZstdLong : (codec_index == 3 ? rpk::CodecMode::Store : rpk::CodecMode::Auto));
     options.threads = read_unsigned_control(g_app->threads, 0, 64);
     options.memory_limit_mib = read_unsigned_control(g_app->memory_limit, 128, 65536);
+    options.volume_size_mib = read_unsigned_control(g_app->volume_size, 0, 4096);
     options.deduplicate = SendMessageW(g_app->dedup, BM_GETCHECK, 0, 0) == BST_CHECKED;
     options.precompress = SendMessageW(g_app->precomp, BM_GETCHECK, 0, 0) == BST_CHECKED;
     options.overwrite = SendMessageW(g_app->overwrite, BM_GETCHECK, 0, 0) == BST_CHECKED;

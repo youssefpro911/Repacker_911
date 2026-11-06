@@ -47,6 +47,7 @@ void print_help() {
         "  --codec auto|lzma2|zstd-long|store  Per-group codec selection (default auto)\n"
         "  --threads N|auto             Parallel block compression workers (default auto)\n"
         "  --memory-mib N               Approximate compression memory budget, 128..65536 MiB (default 1024)\n"
+        "  --volume-size-mib N          Split output into .001, .002... parts; 0 disables (default 0)\n"
         "  --no-dedup                   Disable content-defined chunk deduplication\n"
         "  --no-precomp                 Disable exact-match embedded zlib precompression\n"
         "  --force                      Replace an existing output archive\n\n"
@@ -174,6 +175,11 @@ int run(const std::vector<std::string>& args) {
                 const auto value = parse_unsigned(args[++i], "--memory-mib");
                 if (value < 128 || value > 65536) throw std::runtime_error("--memory-mib must be between 128 and 65536");
                 options.memory_limit_mib = static_cast<std::uint32_t>(value);
+            } else if (option == "--volume-size-mib") {
+                if (i + 1 >= args.size()) throw std::runtime_error("--volume-size-mib requires a value");
+                const auto value = parse_unsigned(args[++i], "--volume-size-mib");
+                if (value > 4096) throw std::runtime_error("--volume-size-mib must be between 0 and 4096");
+                options.volume_size_mib = static_cast<std::uint32_t>(value);
             } else if (option == "--no-dedup") {
                 options.deduplicate = false;
             } else if (option == "--no-precomp") {
@@ -192,6 +198,7 @@ int run(const std::vector<std::string>& args) {
                   << ", codec " << codec_mode_name(options.codec)
                   << ", threads " << (options.threads == 0 ? "auto" : std::to_string(options.threads))
                   << ", memory budget " << options.memory_limit_mib << " MiB"
+                  << ", volume size " << (options.volume_size_mib == 0 ? "single-file" : std::to_string(options.volume_size_mib) + " MiB")
                   << ", exact zlib precompression " << (options.precompress ? "enabled" : "disabled") << "\n";
         rpk::pack_directory(source, output, options, [](const std::string& message) { std::cout << message << '\n'; });
         return 0;

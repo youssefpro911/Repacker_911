@@ -145,6 +145,7 @@ Options:
 | `--codec auto\|lzma2\|zstd-long\|store` | Select automatic type-aware grouping or force one codec |
 | `--threads N\|auto` | Maximum parallel block workers; 0/auto uses a safe system-derived count |
 | `--memory-mib N` | Approximate memory budget used to cap in-flight workers, 128–65536 MiB |
+| `--volume-size-mib N` | Optional split size: 1–4096 MiB per part; 0 keeps one `.rpk` file |
 | `--no-dedup` | Disable deduplication (content-defined chunking is still used) |
 | `--no-precomp` | Disable conservative exact-match zlib precompression |
 | `--force` | Replace an existing output archive |
@@ -152,6 +153,18 @@ Options:
 Precompression is enabled by default for files up to 64 MiB. It scans files up to 64 MiB for RFC 1950 zlib-wrapped DEFLATE streams, validates the zlib checksum, and tries standard zlib compression levels 0–9 (default strategy, memory level 8). The scan is bounded to eight candidate streams per file, at most 16 MiB compressed input per candidate, and 128 MiB total decoded candidate data per file. It converts a stream only when the current zlib runtime regenerates the exact byte sequence. Candidate scanning is bounded; large files and unsupported streams are passed through unchanged. Version 3 and 4 archives record `zlibVersion()` and extraction refuses a different runtime version rather than risk generating different bytes. This is deliberately conservative: gzip-wrapped streams, raw DEFLATE streams, unusual zlib strategies, and streams that do not reproduce byte-for-byte are not transformed. Precompression can make the intermediate data larger; its purpose is to expose highly compressible decoded content to the outer solid codec, and it does not guarantee a smaller archive. Use `--no-precomp` for a baseline comparison.
 
 Auto groups files by scanner classification before building solid blocks. Known already-compressed audio/video/archive groups are stored directly; text/script and selected document groups use Zstandard long-range; remaining groups use LZMA2/XZ. Use `--codec` to force a codec for every group. Auto selection is a heuristic, not a promise that every input becomes smaller. The CDC settings are currently fixed: 64 KiB minimum, 256 KiB target, and 1 MiB maximum chunk size. A duplicate candidate is accepted only after a byte-for-byte comparison, even when its SHA-256 matches. Unique raw chunks are staged in a temporary file beside the archive while building; allow extra temporary disk space approximately equal to the unique source data.
+
+### Split archives across multiple files
+
+Use `--volume-size-mib` when the output needs to fit a file-size limit or be copied in smaller pieces:
+
+```powershell
+rpk pack "D:\Games\Example" -o "D:\Backups\Example.rpk" --volume-size-mib 1900
+rpk test "D:\Backups\Example.rpk"
+rpk extract "D:\Backups\Example.rpk" -C "D:\Games\Restored"
+```
+
+The parts are named `Example.rpk.001`, `Example.rpk.002`, and so on. Keep every part together. The reader automatically joins the complete set for listing, verification, and extraction; you can pass either the base name or the first `.001` part. The default value `0` keeps a normal single-file archive.
 
 ### List, verify, and extract
 

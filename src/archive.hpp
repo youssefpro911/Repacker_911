@@ -30,6 +30,7 @@ struct PackOptions {
     std::uint64_t block_size = 64ULL * 1024ULL * 1024ULL;
     std::uint32_t threads = 0; // 0 = automatically select a safe count
     std::uint32_t memory_limit_mib = 1024;
+    std::uint32_t volume_size_mib = 0; // 0 = single archive; otherwise split into numbered .001, .002... parts
     CodecMode codec = CodecMode::Auto;
     bool overwrite = false;
     bool deduplicate = true;

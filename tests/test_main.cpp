@@ -347,6 +347,26 @@ void test_pack_extract_and_corruption() {
     }
     require(rejected, "Corrupted archive was not rejected");
 
+    const auto volume_archive = temporary.path() / "split-test.rpk";
+    const auto volume_restored = temporary.path() / "split-restored";
+    rpk::PackOptions volume_options = options;
+    volume_options.precompress = false;
+    volume_options.volume_size_mib = 1;
+    rpk::pack_directory(source, volume_archive, volume_options);
+    require(!std::filesystem::exists(volume_archive), "Split mode should replace the monolithic output with numbered volumes");
+    require(std::filesystem::exists(std::filesystem::path(volume_archive.string() + ".001")),
+            "Split archive did not create its first volume");
+    require(std::filesystem::exists(std::filesystem::path(volume_archive.string() + ".002")),
+            "Split archive did not create multiple volumes for this fixture");
+    const auto split_info = rpk::read_archive(volume_archive);
+    require(split_info.version == 4 && split_info.files.size() == 8,
+            "Reading an archive by its base name did not join all volumes");
+    const auto explicit_first_volume = std::filesystem::path(volume_archive.string() + ".001");
+    require(rpk::read_archive(explicit_first_volume).files.size() == split_info.files.size(),
+            "Reading an explicit .001 part did not join the remaining volumes");
+    rpk::extract_archive(volume_archive, volume_restored, false);
+    compare_trees(source, volume_restored);
+
     const auto no_dedup_archive = temporary.path() / "no-dedup.rpk";
     rpk::PackOptions no_dedup_options = options;
     no_dedup_options.deduplicate = false;
