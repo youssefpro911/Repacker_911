@@ -14,6 +14,7 @@
 #include <memory>
 #include <iterator>
 #include <string>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -35,7 +36,7 @@ struct App {
     HWND endpoint=nullptr, key=nullptr, model=nullptr, prompt=nullptr, answer=nullptr;
     HWND refresh=nullptr, ask=nullptr, status=nullptr, docs=nullptr;
     HWND endpoint_label=nullptr, key_label=nullptr, model_label=nullptr, prompt_label=nullptr, answer_label=nullptr;
-    HFONT body=nullptr, title=nullptr, heading=nullptr, small=nullptr;
+    HFONT body=nullptr, title=nullptr, heading=nullptr, small_font=nullptr;
     HBRUSH background=nullptr, card=nullptr, input=nullptr;
     std::thread worker;
     bool busy=false, close_after=false;
@@ -214,7 +215,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT msg,WPARAM wp,LPARAM lp) {
         g->body=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
         g->title=CreateFontW(-30,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
         g->heading=CreateFontW(-14,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
-        g->small=CreateFontW(-13,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
+        g->small_font=CreateFontW(-13,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
         g->background=CreateSolidBrush(kBg);g->card=CreateSolidBrush(kCard);g->input=CreateSolidBrush(kInput);
         const auto settings=rpk::jan::load_settings();
         auto label=[&](const wchar_t* caption){return add_control(window,L"STATIC",caption,SS_LEFT,-1,g->body);};
@@ -273,7 +274,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT msg,WPARAM wp,LPARAM lp) {
         save_settings();DestroyWindow(window);return 0;
     case WM_DESTROY:
         if(g->worker.joinable())g->worker.join();
-        if(g->body)DeleteObject(g->body);if(g->title)DeleteObject(g->title);if(g->heading)DeleteObject(g->heading);if(g->small)DeleteObject(g->small);
+        if(g->body)DeleteObject(g->body);if(g->title)DeleteObject(g->title);if(g->heading)DeleteObject(g->heading);if(g->small_font)DeleteObject(g->small_font);
         if(g->background)DeleteObject(g->background);if(g->card)DeleteObject(g->card);if(g->input)DeleteObject(g->input);
         PostQuitMessage(0);return 0;
     default:return DefWindowProcW(window,msg,wp,lp);
