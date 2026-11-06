@@ -391,9 +391,9 @@ void create_controls(HWND window) {
     button(L"Create setup", IDC_SFX, 618, 467, 128, 36);
 
     g_app->status = add_control(window, L"STATIC", L"Ready",
-                                SS_LEFT, 710, 456, 310, 20, IDC_STATUS, font);
+                                SS_LEFT, 770, 456, 250, 20, IDC_STATUS, font);
     g_app->progress = add_control(window, PROGRESS_CLASSW, L"",
-                                  PBS_MARQUEE | PBS_SMOOTH, 710, 480, 310, 12,
+                                  PBS_MARQUEE | PBS_SMOOTH, 770, 480, 250, 12,
                                   IDC_PROGRESS, font);
     SendMessageW(g_app->progress, PBM_SETMARQUEE, FALSE, 0);
     SendMessageW(g_app->progress, PBM_SETBKCOLOR, 0, RGB(231, 237, 246));
