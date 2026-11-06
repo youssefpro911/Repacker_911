@@ -22,6 +22,7 @@
 #include <iomanip>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -254,6 +255,8 @@ HWND make_edit(HWND window,const wchar_t* caption,int id) {
 HWND make_button(HWND window,const wchar_t* caption,int id) {
     return add_control(window,L"BUTTON",caption,BS_OWNERDRAW|WS_TABSTOP,0,0,10,36,id,g_app->font);
 }
+void layout_controls(HWND window);
+
 void create_controls(HWND window) {
     g_app->font=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
     g_app->title_font=CreateFontW(-31,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
@@ -375,7 +378,6 @@ void layout_controls(HWND window) {
     MoveWindow(g_app->destination,170,662,std::max(280,w-170-m-120),34,TRUE);
     if(HWND b=GetDlgItem(window,IDC_DESTINATION_BROWSE)) MoveWindow(b,right-105,662,105,34,TRUE);
 
-    const int activity_top=740;
     MoveWindow(g_app->log,52,780,w-104,std::max(70,h-800),TRUE);
     InvalidateRect(window,nullptr,TRUE);
 }
