@@ -1,0 +1,102 @@
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/windows-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    name: Build and test Windows x64
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $root
+          if ($LASTEXITCODE -ne 0) { throw 'Could not clone vcpkg.' }
+          & (Join-Path $root 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'Could not bootstrap vcpkg.' }
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install compression and hashing libraries
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install liblzma:x64-windows-static openssl:x64-windows-static zlib:x64-windows-static zstd:x64-windows-static
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg dependency installation failed.' }
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DVCPKG_APPLOCAL_DEPS=OFF `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'RPK compilation failed.' }
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'RPK tests failed.' }
+
+      - name: Stage portable package
+        shell: pwsh
+        run: |
+          $release = Join-Path $env:GITHUB_WORKSPACE 'build\Release'
+          $out = Join-Path $env:GITHUB_WORKSPACE 'RPK-Windows-x64'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          foreach ($exe in @('rpk.exe', 'rpk_gui.exe')) {
+            $path = Join-Path $release $exe
+            if (-not (Test-Path $path)) { throw "Expected output not found: $path" }
+            Copy-Item -LiteralPath $path -Destination $out
+          }
+          Get-ChildItem -LiteralPath $release -Filter '*.dll' -File -ErrorAction SilentlyContinue |
+            Copy-Item -Destination $out -Force
+          foreach ($doc in @('README.md', 'FORMAT.md', 'START_HERE.txt', 'LICENSE')) {
+            if (Test-Path $doc) { Copy-Item -LiteralPath $doc -Destination $out }
+          }
+          @'
+          RPK — Portable Windows x64
+          --------------------------
+          Run rpk_gui.exe to open the graphical builder.
+          rpk.exe is the command-line version.
+          Extract this folder anywhere and run the application.
+          No local compiler or CMake installation is required.
+          '@ | Set-Content -LiteralPath (Join-Path $out 'README-FIRST.txt') -Encoding utf8
+          Get-ChildItem -LiteralPath $out -File | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))" } |
+            Set-Content -LiteralPath (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'RPK-Windows-x64\*' -DestinationPath 'RPK-Windows-x64.zip' -CompressionLevel Optimal
+
+      - name: Upload ready-to-run Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPK-Windows-x64
+          path: RPK-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
