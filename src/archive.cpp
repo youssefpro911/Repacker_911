@@ -20,6 +20,13 @@
 #include <thread>
 #include <unordered_map>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <lzma.h>
 #include <zstd.h>
 
@@ -47,6 +54,50 @@ std::string path_for_error(const std::filesystem::path& path) {
     } catch (...) {
         return path.string();
     }
+}
+
+bool file_is_read_only(const std::filesystem::path& path) {
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        throw std::runtime_error("Cannot read Windows file attributes: " + path_for_error(path) +
+                                 " (Win32 error " + std::to_string(GetLastError()) + ")");
+    }
+    return (attributes & FILE_ATTRIBUTE_READONLY) != 0;
+#else
+    std::error_code ec;
+    const auto permissions = std::filesystem::status(path, ec).permissions();
+    if (ec) {
+        throw std::runtime_error("Cannot read file permissions: " + path_for_error(path) +
+                                 " (" + ec.message() + ")");
+    }
+    return (permissions & std::filesystem::perms::owner_write) == std::filesystem::perms::none;
+#endif
+}
+
+void set_file_read_only(const std::filesystem::path& path, bool read_only) {
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        throw std::runtime_error("Cannot read Windows file attributes: " + path_for_error(path) +
+                                 " (Win32 error " + std::to_string(GetLastError()) + ")");
+    }
+    const DWORD updated = read_only ? (attributes | FILE_ATTRIBUTE_READONLY)
+                                    : (attributes & ~FILE_ATTRIBUTE_READONLY);
+    if (updated != attributes && !SetFileAttributesW(path.c_str(), updated)) {
+        throw std::runtime_error("Cannot change Windows read-only attribute: " + path_for_error(path) +
+                                 " (Win32 error " + std::to_string(GetLastError()) + ")");
+    }
+#else
+    std::error_code ec;
+    const auto mode = read_only ? std::filesystem::perm_options::remove
+                                : std::filesystem::perm_options::add;
+    std::filesystem::permissions(path, std::filesystem::perms::owner_write, mode, ec);
+    if (ec) {
+        throw std::runtime_error("Cannot change file write permission: " + path_for_error(path) +
+                                 " (" + ec.message() + ")");
+    }
+#endif
 }
 
 class ByteWriter {
@@ -1215,10 +1266,7 @@ void pack_directory(const std::filesystem::path& source,
         }
         FileRecord file;
         file.path = item.first;
-        std::error_code status_error;
-        const auto permissions = std::filesystem::status(item.second, status_error).permissions();
-        if (status_error) throw std::runtime_error("Cannot read file permissions: " + path_for_error(item.second));
-        file.read_only = (permissions & std::filesystem::perms::owner_write) == std::filesystem::perms::none;
+        file.read_only = file_is_read_only(item.second);
 
         std::vector<std::uint8_t> entropy_sample;
         entropy_sample.reserve(kEntropySampleLimit);
@@ -1545,16 +1593,13 @@ void extract_archive(const std::filesystem::path& archive_path,
         if (parent != root) safe_directory(root, parent.lexically_relative(root).generic_u8string(), true);
         ensure_no_unsafe_existing_target(target, overwrite);
         if (overwrite && std::filesystem::exists(target)) {
-            std::filesystem::permissions(target, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, ec);
-            ec.clear();
+            set_file_read_only(target, false);
             std::filesystem::remove(target, ec);
             if (ec) throw std::runtime_error("Cannot replace existing file: " + path_for_error(target) + " (" + ec.message() + ")");
         }
         std::filesystem::rename(staged_files[i], target, ec);
         if (ec) throw std::runtime_error("Cannot install extracted file: " + file.path + " (" + ec.message() + ")");
-        const auto mode = file.read_only ? std::filesystem::perm_options::remove : std::filesystem::perm_options::add;
-        std::filesystem::permissions(target, std::filesystem::perms::owner_write, mode, ec);
-        if (ec) throw std::runtime_error("File was extracted but its read-only attribute could not be restored: " + file.path + " (" + ec.message() + ")");
+        set_file_read_only(target, file.read_only);
         if (progress) progress("Extracted and hash-verified: " + file.path);
     }
 }
