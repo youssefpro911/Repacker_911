@@ -3,6 +3,7 @@
 #include <fstream>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include <openssl/evp.h>
 
@@ -80,12 +81,12 @@ Sha256 sha256_file(const std::filesystem::path& path) {
     }
 
     Sha256Hasher hasher;
-    char buffer[1024 * 1024];
+    std::vector<char> buffer(1024U * 1024U);
     while (input) {
-        input.read(buffer, static_cast<std::streamsize>(sizeof(buffer)));
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
         const std::streamsize count = input.gcount();
         if (count > 0) {
-            hasher.update(buffer, static_cast<std::size_t>(count));
+            hasher.update(buffer.data(), static_cast<std::size_t>(count));
         }
     }
     if (!input.eof()) {
