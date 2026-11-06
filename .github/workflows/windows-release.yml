@@ -17,6 +17,10 @@ on:
       - 'CMakeLists.txt'
       - 'src/**'
       - 'tests/**'
+      - 'README.md'
+      - 'AI-SETUP.md'
+      - 'START_HERE.txt'
+      - 'FORMAT.md'
       - '.github/workflows/windows-release.yml'
 
 permissions:
@@ -93,7 +97,7 @@ jobs:
           --------------------------
           Run rpk_gui.exe to open the graphical archive builder.
           Run rpk_setup.exe only as the SFX stub embedded by the rpk sfx command.
-          Run rpk_ai.exe for the optional local GGUF model assistant.
+          Run rpk_ai.exe to configure the optional Jan local model connection.
           rpk.exe is the command-line version.
           Extract this folder anywhere and run the application.
           No local compiler or CMake installation is required.
